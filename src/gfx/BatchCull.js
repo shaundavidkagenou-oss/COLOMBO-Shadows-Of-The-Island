@@ -20,6 +20,7 @@
 // HIDE_LAYER for the duration of the frame's render only (beginHide / endHide around it); every shadow camera and the water
 // mirror camera also see HIDE_LAYER, so their shadows and reflections are untouched, and game code never sees a change.
 import * as THREE from 'three';
+import { beginIndirect, commitIndirect } from './IndirectCache.js';
 
 export const HIDE_LAYER = 30;
 export const CSLOTS = 9; // occlusion cells per batched instance (3 × 3)
@@ -86,7 +87,7 @@ function grow(n) { if (_S.length >= n) return; const m = Math.max(n, _S.length *
 function cullDraw(B, camera, geometry, material, pass) {
   const S = B.userData.cull, II = B._instanceInfo, GI = B._geometryInfo;
   if (!S.sph || S.sphN !== II.length) spheres(B, S);
-  const sph = S.sph, starts = B._multiDrawStarts, counts = B._multiDrawCounts, ind = B._indirectTexture.image.data;
+  const sph = S.sph, starts = B._multiDrawStarts, counts = B._multiDrawCounts, ind = beginIndirect(B); /* 98th: this camera's list → its own indirect texture (IndirectCache.js) */
   const index = geometry.getIndex(); const bpe = index === null ? 1 : index.array.BYTES_PER_ELEMENT;
   _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); _f.setFromProjectionMatrix(_m, camera.coordinateSystem, camera.reversedDepth); const pl = _f.planes;
   const shadow = pass === 'shadow' || pass === 'far'; const E = shadow ? CULL.eye : camera.position; const ex = E.x, ey = E.y, ez = E.z;
@@ -100,14 +101,15 @@ function cullDraw(B, camera, geometry, material, pass) {
     gOrd = S.gOrd || (S.gOrd = []); gOrd.length = 0; const gz = S.gz || (S.gz = new Float64Array(ng)); const sg = back ? -1 : 1;
     for (let g = 0; g < ng; g++) { gz[g] = ((gs[g * 4] - ex) * _fwd.x + (gs[g * 4 + 1] - ey) * _fwd.y + (gs[g * 4 + 2] - ez) * _fwd.z) * sg; gOrd.push(g); }
     gOrd.sort(S.gCmp || (S.gCmp = (a, b) => gz[a] - gz[b])); sort = false; }
-  for (let gg = 0; gg < ng; gg++) { const g = gOrd ? gOrd[gg] : gg; let i0 = 0, i1 = II.length;
+  for (let gg = 0; gg < ng; gg++) { const g = gOrd ? gOrd[gg] : gg; let i0 = 0, i1 = II.length, inside = false;
    if (G) { i0 = G[g]; i1 = G[g + 1]; const o = g * 4, cx = gs[o], cy = gs[o + 1], cz = gs[o + 2], r = gs[o + 3]; if (r < 0) continue;
-     let out = false; for (let p = 0; p < 6; p++) { const P = pl[p]; if (P.normal.x * cx + P.normal.y * cy + P.normal.z * cz + P.constant < -r) { out = true; break; } } if (out) continue;
+     let out = false, all = true; for (let p = 0; p < 6; p++) { const P = pl[p]; const d = P.normal.x * cx + P.normal.y * cy + P.normal.z * cz + P.constant; if (d < -r) { out = true; break; } if (d < r) all = false; } if (out) continue;
+     inside = all; /* 98th: the group's sphere wholly inside the frustum holds every instance sphere of the group (it bounds them): none can fail the plane test */
      if (lod && maxD < Infinity && Math.hypot(cx - ex, cy - ey, cz - ez) - r > maxD) { st.distCut += i1 - i0; continue; } }
   for (let i = i0; i < i1; i++) {
     const inf = II[i]; if (!inf.active || !inf.visible) continue;
     const o = i * 4, cx = sph[o], cy = sph[o + 1], cz = sph[o + 2], r = sph[o + 3]; if (r < 0) continue;
-    let out = false; for (let p = 0; p < 6; p++) { const P = pl[p]; if (P.normal.x * cx + P.normal.y * cy + P.normal.z * cz + P.constant < -r) { out = true; break; } } if (out) continue;
+    if (!inside) { let out = false; for (let p = 0; p < 6; p++) { const P = pl[p]; if (P.normal.x * cx + P.normal.y * cy + P.normal.z * cz + P.constant < -r) { out = true; break; } } if (out) continue; }
     const dx = cx - ex, dy = cy - ey, dz = cz - ez; const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - r;
     if (lod && d > maxD) { st.distCut++; continue; }
     if (occ) { const id = S.bid ? S.bid[i] : -1; if (id >= 0) { if (hB[id] === 1) { st.occluded++; continue; } } else if (S.cells) { const cq = i * CSLOTS; const c0 = S.cells[cq]; if (c0 >= 0 && hC[c0] === 1) { let all = true; for (let j = 1; j < CSLOTS; j++) { const c = S.cells[cq + j]; if (c < 0) break; if (hC[c] !== 1) { all = false; break; } } if (all) { st.occluded++; continue; } } } }
@@ -117,7 +119,7 @@ function cullDraw(B, camera, geometry, material, pass) {
     else { starts[k] = gi.start * bpe; counts[k] = cnt; ind[k] = i; k++; }
   } }
   if (sort && q) { _ord.length = q; for (let j = 0; j < q; j++) _ord[j] = j; if (q > 1) _ord.sort(_byZ); for (let j = 0; j < q; j++) { const u = _ord[j]; starts[k] = _S[u] * bpe; counts[k] = _C[u]; ind[k] = _I[u]; k++; } }
-  st.drawn += k; B._indirectTexture.needsUpdate = true; B._multiDrawCount = k; B._visibilityChanged = false;
+  st.drawn += k; commitIndirect(B, camera, k); B._multiDrawCount = k; B._visibilityChanged = false;
 }
 
 // ---------------------------------------------------------------- ordinary objects: hidden from the main camera for one frame

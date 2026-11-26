@@ -43,6 +43,7 @@ import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleMo
 import { captureToCanvas } from './gfx/LinearCapture.js';
 import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm, maintainPoolWarm } from './gfx/LightSets.js';
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
+import { assignDepthKinds } from './gfx/DepthKinds.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { Bicycles } from './vehicles/BicycleRide.js';
@@ -110,7 +111,7 @@ import { ObjectAudio } from './audio/ObjectAudio.js'; // 76th
 import { VehicleAudio } from './audio/VehicleAudio.js';
 import { CarRadio } from './audio/CarRadio.js';
 import { TrafficAudio } from './audio/TrafficAudio.js';
-import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
+import { CULL, LOD, beginHide, endHide, seeHidden, hideObject } from './gfx/BatchCull.js';
 import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
 import { TexLib } from './gfx/TexLib.js'; // 83rd: shared 2048² KTX2 atlases (balcony life, birds, vehicle detail)
@@ -541,7 +542,7 @@ export class Game {
     }
     if (W && W.cullProps) W.cullProps(cam.position, this.atmos ? this.atmos.sun.target.position : cam.position, this.atmos ? this.atmos.sunDir.y : 0.7);
     // every shadow-casting light (and the water mirror, Water.js) still sees what is hidden from the main camera
-    if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); }); }
+    if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); const R = this.renderer; this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); else if (o.isMesh) assignDepthKinds(o, R); /* 98th FPS: a depth material per mesh kind (DepthKinds.js) */ }); }
     for (const c of this._shadowCams) seeHidden(c);
   }
   // A/B switch for measurements (tools/lod-census.mjs, perf-frame): 'on' (default) | 'off' (no occlusion, LOD, draw distances or
@@ -566,8 +567,22 @@ export class Game {
       const it = item(); it.obj = v.mesh; const b = it.box; b[0] = x - h; b[1] = x + h; b[2] = z - h; b[3] = z + h; b[4] = y + 4.5; n++; }
     if (!this._siteBoxes) { // landmark / site groups (static): world boxes once
       const S = (this._siteBoxes = []); const bx = new THREE.Box3();
-      for (const g of [W.landmarks && W.landmarks.group, W.fuel && W.fuel.group, W.customs && W.customs.group, W.hospitalBuild && W.hospitalBuild.root]) if (g) { g.updateMatrixWorld(true); for (const c of g.children) { if (c.isLight) continue; bx.setFromObject(c); if (bx.isEmpty() || bx.max.x - bx.min.x > 260 || bx.max.z - bx.min.z > 260) continue; S.push({ obj: c, box: [bx.min.x, bx.max.x, bx.min.z, bx.max.z, bx.max.y + 0.5] }); } } }
-    return beginHide(L, n) + beginHide(this._siteBoxes);
+      for (const g of [W.landmarks && W.landmarks.group, W.fuel && W.fuel.group, W.customs && W.customs.group, W.hospitalBuild && W.hospitalBuild.root]) if (g) { g.updateMatrixWorld(true); for (const c of g.children) { if (c.isLight) continue; bx.setFromObject(c); if (bx.isEmpty() || bx.max.x - bx.min.x > 260 || bx.max.z - bx.min.z > 260) continue; S.push({ obj: c, box: [bx.min.x, bx.max.x, bx.min.z, bx.max.z, bx.max.y + 0.5] }); } } this._siteBase = S.length; }
+    // 98th (FPS): the walk-in shop doors (5 meshes each, 22 of them) join the static sites — a door behind the block in front of
+    // the camera was drawn anyway. Box: the closed door's, widened by its swing (the leaf opens ≤ 1.2 m out of the frame).
+    const WI = this.interiors && this.interiors.walkIn;
+    if (WI && WI.sites.length !== (this._siteDoorN || 0)) { const bx = new THREE.Box3();
+      for (let i = this._siteDoorN || 0; i < WI.sites.length; i++) { const d = WI.sites[i].doorObj; if (!d || !d.group) continue; d.group.updateMatrixWorld(true); bx.setFromObject(d.group); if (bx.isEmpty()) continue;
+        this._siteBoxes.push({ obj: d.group, box: [bx.min.x - 1.4, bx.max.x + 1.4, bx.min.z - 1.4, bx.max.z + 1.4, bx.max.y + 0.5] }); }
+      this._siteDoorN = WI.sites.length; this._siteGen = -1; }
+    // 98th (FPS): static sites are tested once per horizon (the answer cannot change until the next one), at any distance — a
+    // site beyond the horizon's 700 m occluder range is still hidden only when it sits below the horizon of the nearer blocks
+    // on every ray across it (conservative, as for everything else); they used to be re-tested every frame, and never past 700 m
+    if (this.siteOpt === false) return beginHide(L, n) + beginHide(this._siteBoxes, this._siteBase); // (A/B: the previous per-frame test of the original sites)
+    const occ = W.occ, H = this._siteHid || (this._siteHid = []);
+    if (this._siteGen !== occ.gen) { this._siteGen = occ.gen; H.length = 0; for (const s of this._siteBoxes) { const b = s.box; if (occ.boxTest(occ.front, b[0], b[1], b[2], b[3], b[4], Infinity) === 1) H.push(s.obj); } }
+    let m = 0; for (const o of H) if (o.visible) { hideObject(o); m++; }
+    return beginHide(L, n) + m;
   }
   frameStep(dt) {
     try {

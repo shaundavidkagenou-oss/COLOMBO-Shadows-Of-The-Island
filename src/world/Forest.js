@@ -18,6 +18,7 @@ import { LAND_Y } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { leafDepthMaterial } from './Vegetation.js';
 import { leafMeshDepth } from './LeafMesh.js';
+import { beginIndirect, commitIndirect } from '../gfx/IndirectCache.js';
 
 export const CELL = 50;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
@@ -125,7 +126,7 @@ export class Forest {
   // shadow passes draw the light LOD of every tree (same crown clumps and silhouette, ~4 × fewer triangles; 88th)
   fill(bm, cam, shadow = false) {
     const ci = bm.userData.ci; const n0 = this.meshes.indexOf(bm); const cells = this.visible(cam, ci);
-    const starts = bm._multiDrawStarts, counts = bm._multiDrawCounts, ind = bm._indirectTexture.image.data, GI = bm._geometryInfo; const idx = bm.geometry.getIndex(); const bpe = idx ? idx.array.BYTES_PER_ELEMENT : 1;
+    const starts = bm._multiDrawStarts, counts = bm._multiDrawCounts, ind = beginIndirect(bm), GI = bm._geometryInfo; const idx = bm.geometry.getIndex(); const bpe = idx ? idx.array.BYTES_PER_ELEMENT : 1;
     let n = 0; const forcedLo = this.forced.size > 0;
     const B2 = this.LB2[ci], px = this.cpx, pz = this.cpz; const shN = bm.userData.shNear || 2;
     for (const c of cells) { const a = c.arr[ci][n0]; if (!a) continue; const forcedL = forcedLo && this.forced.has(c); const mode = forcedL ? 3 : c.lod[ci]; const xz = mode < 0 ? c.pos[ci][n0] : null;
@@ -134,7 +135,7 @@ export class Forest {
         let g; if (shadow) { const s = b <= 1 ? shN : 2; g = a[k + 1 + s]; if (g < 0 && s === 2) g = a[k + 2]; } // shadow: its LOD, else the medium one (flowers), never the near-only twigs
         else g = a[k + 1 + b];
         if (g < 0) continue; const gi = GI[g]; starts[n] = gi.start * bpe; counts[n] = gi.count; ind[n] = a[k]; n++; } }
-    bm._multiDrawCount = n; bm._multiDrawBytesPerElement = bpe; bm._indirectTexture.needsUpdate = true; bm._visibilityChanged = false;
+    bm._multiDrawCount = n; bm._multiDrawBytesPerElement = bpe; commitIndirect(bm, cam, n); /* 98th: uploaded only when this camera's list changed */ bm._visibilityChanged = false;
     if (!shadow) this.stats.draws += n;
   }
 }
