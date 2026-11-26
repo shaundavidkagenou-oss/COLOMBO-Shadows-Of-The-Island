@@ -113,14 +113,26 @@ function ready(F, H, shapes) {
     const c = pen * 40 + Math.abs(a1) * 0.02 + Math.abs(a2) * 0.01; if (c < bc) { bc = c; best = a; } }
   return best.map((v) => +v.toFixed(3));
 }
-function thumb(F, H, shapes, target) {
+// 97th: `dir` (weapon space, optional) = which way the thumb should point. A tip-only target let the thumb
+// reach its spot from any side — on the pistols it came round the back of the grip sideways or stood up over the slide,
+// on the rifles' forend it stood up off the handguard. Shooters lay the thumb along the gun, pointing at the muzzle, so
+// the search also scores the thumb's heading (knuckle → tip) (DIR_W metres per unit of 1 − cos).
+const DIR_W = 0.03;
+// …but only among poses that reach the spot: past REACH from it a tip costs REACH_W per metre more (else a straight thumb
+// lying forward on the wrong side of the frame — out of sight under the hand — could out-score the real one)
+const REACH = 0.015, REACH_W = 3;
+const R_THUMB = 0.0095; // thumb skin half-thickness (the stick model's finger radius let the firing thumb laid along a pistol frame sink into it)
+const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+function thumbDirCos(F, r, dir) { toW(F, r.pts[1], _a); /* the two visible phalanges (knuckle → tip) */ toW(F, r.tip, _b); return _b.sub(_a).normalize().dot(dir); }
+function thumb(F, H, shapes, target, dir = null, rp = R_FINGER * 0.9) { // rp: skin radius for the no-entry check
   let best = [0.5, 0, 0], bc = 1e9;
   const TR = [2.2, 1.6, 1.6]; // curl, opposition, swing search ranges (rad)
+  const cost = (r) => { let pen = 0; for (const p of r.pts) pen += Math.max(0, rp - sdf(toW(F, p, _v), shapes)); const d = toW(F, r.tip, _v).distanceTo(target); return [d + (dir ? DIR_W * (1 - thumbDirCos(F, r, dir)) + REACH_W * Math.max(0, d - REACH) : 0), pen]; };
   for (let t = -0.6; t <= TR[0]; t += 0.1) for (let ox = -TR[1]; ox <= TR[1]; ox += 0.1) for (let oy = -TR[2]; oy <= TR[2]; oy += 0.15) {
-    const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes));
-    const c = toW(F, r.tip, _v).distanceTo(target) + pen * 5 + (Math.abs(ox) + Math.abs(oy)) * 0.004; if (c < bc) { bc = c; best = [t, ox, oy]; } }
-  // fine pass: only a closer tip with no more penetration than the coarse optimum (never trades contact for reach)
-  const ev = (t, ox, oy) => { const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes)); return [toW(F, r.tip, _v).distanceTo(target), pen]; };
+    const [d, pen] = cost(H.thumb(t, ox, oy));
+    const c = d + pen * 5 + (Math.abs(ox) + Math.abs(oy)) * 0.004; if (c < bc) { bc = c; best = [t, ox, oy]; } }
+  // fine pass: only a closer tip (and heading) with no more penetration than the coarse optimum (never trades contact for reach)
+  const ev = (t, ox, oy) => cost(H.thumb(t, ox, oy));
   const b0 = best.slice(); let [bd, bp] = ev(...b0); for (let dt = -0.1; dt <= 0.1001; dt += 0.025) for (let dx = -0.1; dx <= 0.1001; dx += 0.025) for (let dy = -0.15; dy <= 0.1501; dy += 0.05) {
     const c = [b0[0] + dt, b0[1] + dx, b0[2] + dy]; const [d, pn] = ev(...c); if (d < bd - 1e-4 && pn <= bp + 1e-5) { bd = d; bp = pn; best = c; } }
   return best.map((v) => +v.toFixed(3));
@@ -140,10 +152,11 @@ function solve(bones, ud) {
   const gripPose = [1, 2, 3].map((fi) => close(FR, HR, fi, wrapShapes));
   const trig = trigger(FR, HR, shapes.filter((s) => s !== hold.trigBlade), hold.trig.clone().addScaledVector(fwd, 0.004));
   const rdy = ready(FR, HR, shapes);
-  const thR = thumb(FR, HR, shapes, hold.thumbR);
+  const fwdW = new THREE.Vector3(0, 0, 1); const dirR = hold.fore ? (hold.thumbRDir || null) : (hold.thumbRDir || fwdW); // pistols: thumbs forward
+  const thR = thumb(FR, HR, shapes, hold.thumbR, dirR, dirR ? R_THUMB : R_FINGER * 0.9); // laid along the frame: checked at the thumb's own (thicker) skin
   const thTip = toW(FR, HR.thumb(...thR).tip, new THREE.Vector3()); const tipsX = [1, 2, 3].map((fi) => { const pts = HR.finger(fi, gripPose[fi - 1]); return +toW(FR, pts[8].p, new THREE.Vector3()).x.toFixed(3); });
   const R = { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(FR.X, FR.Y, FR.Z)), wrist: FR.T.clone(),
-    ready: pose([rdy, ...gripPose], thR), trigger: pose([trig.a, ...gripPose], thR), pull: pose([[trig.a[0] + 0.12, trig.a[1] + 0.22, trig.a[2] + 0.14], ...gripPose], thR), trigErr: trig.err, thumbErr: thTip.distanceTo(hold.thumbR), tipsX };
+    ready: pose([rdy, ...gripPose], thR), trigger: pose([trig.a, ...gripPose], thR), pull: pose([[trig.a[0] + 0.12, trig.a[1] + 0.22, trig.a[2] + 0.14], ...gripPose], thR), trigErr: trig.err, thumbErr: thTip.distanceTo(hold.thumbR), thumbCos: dirR ? +thumbDirCos(FR, HR.thumb(...thR), dirR).toFixed(3) : null, tipsX };
   // ---- support (left) hand
   const HL = new Hand(bones, 'L'); let L;
   if (hold.fore) { // forend in the palm: palm under-left of the handguard facing up-right, fingers wrap up the right side
@@ -152,16 +165,16 @@ function solve(bones, ud) {
     const g = hold.foreTilt ?? 0.45; FL = frame(FL.X, FL.Z.clone().multiplyScalar(Math.cos(g)).addScaledVector(FL.Y, Math.sin(g))); // wrist angled back towards the forearm; fingers wrap the forend on a diagonal
     const at = fo.c.clone().addScaledVector(n, -(Math.min(fo.h[0], fo.h[1]) + 0.017)); seat(FL, HL, HL.mcpMid.clone().add(new THREE.Vector3(0, 0.012, 0)), at, fs);
     const f = [0, 1, 2, 3].map((fi) => close(FL, HL, fi, fs, [1.5, 1.7, 1.25]));
-    const thT = fo.c.clone().addScaledVector(new THREE.Vector3(1, 0.35, 0).normalize(), fo.h[0] + 0.012).add(new THREE.Vector3(0, 0, 0.045)); const th = thumb(FL, HL, fs, thT);
+    const thT = fo.c.clone().addScaledVector(new THREE.Vector3(1, 0.35, 0).normalize(), fo.h[0] + 0.006) /* 97th: 12 → 6 mm (the thumb laid along the guard rests on it) */.add(new THREE.Vector3(0, 0, 0.045)); const dirL = new THREE.Vector3(0, 0, 1); const th = thumb(FL, HL, fs, thT, dirL, R_THUMB); /* along the left of the handguard, at the muzzle */
     const thErrL = toW(FL, HL.thumb(...th).tip, new THREE.Vector3()).distanceTo(thT);
-    L = { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(FL.X, FL.Y, FL.Z)), wrist: FL.T.clone(), pose: pose(f, th), thumbErr: thErrL };
+    L = { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(FL.X, FL.Y, FL.Z)), wrist: FL.T.clone(), pose: pose(f, th), thumbErr: thErrL, thumbCos: +thumbDirCos(FL, HL.thumb(...th), dirL).toFixed(3) };
   } else { // pistol: support palm on the left panel, its fingers over the firing hand's fingers, thumb forward along the frame
     const bL = 0.15; const FL = frame(xw.clone().multiplyScalar(Math.cos(bL)).addScaledVector(fwd, Math.sin(bL)), u); const over = grown(G, 0.022, 0.012, 0, 0.02); const fs = [over, ...shapes.filter((s) => s !== G)];
     const at = G.c.clone().addScaledVector(u, along(hold.trig.y - 0.022)).addScaledVector(fwd, G.h[2] + 0.02).addScaledVector(xw, G.h[0] + 0.03);
     seat(FL, HL, HL.mcp, at, [over]);
     const f = [0, 1, 2, 3].map((fi) => close(FL, HL, fi, fs, [1.5, 1.7, 1.25]));
-    const th = thumb(FL, HL, fs, hold.thumbL);
-    L = { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(FL.X, FL.Y, FL.Z)), wrist: FL.T.clone(), pose: pose(f, th) };
+    const dirL = new THREE.Vector3(0, 0, 1); const th = thumb(FL, HL, fs, hold.thumbL, dirL);
+    L = { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(FL.X, FL.Y, FL.Z)), wrist: FL.T.clone(), pose: pose(f, th), thumbCos: +thumbDirCos(FL, HL.thumb(...th), dirL).toFixed(3) };
   }
   return { R, L };
 }
@@ -212,7 +225,7 @@ export function holdToPlain(v) { if (v && v.isQuaternion) return { q_: [v.x, v.y
   if (Array.isArray(v)) return v.map(holdToPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdToPlain(v[k]); return o; } return typeof v === 'number' ? +v.toFixed(6) : v; }
 export function holdFromPlain(v) { if (v && v.q_) return new THREE.Quaternion(...v.q_); if (v && v.v_) return new THREE.Vector3(...v.v_);
   if (Array.isArray(v)) return v.map(holdFromPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdFromPlain(v[k]); return o; } return v; }
-const SIGS = new WeakMap(); const SHARED = new Map(); let BAKED = BAKED_HOLDS; const LS_KEY = 'colombo.holds.v1'; let lsCache = null;
+const SIGS = new WeakMap(); const SHARED = new Map(); let BAKED = BAKED_HOLDS; const LS_KEY = 'colombo.holds.v2'; /* 97th: v2 = thumbs laid along the gun (old stored solves dropped) */ let lsCache = null;
 export function setBakedHolds(b) { BAKED = b; }
 const lsGet = () => { if (lsCache) return lsCache; try { lsCache = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem(LS_KEY) || '{}')) || {}; } catch { lsCache = {}; } return lsCache; };
 const lsPut = (k, h) => { try { const c = lsGet(); c[k] = holdToPlain(h); const keys = Object.keys(c); if (keys.length > 160) delete c[keys[0]]; localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch { /* storage full / unavailable */ } };
