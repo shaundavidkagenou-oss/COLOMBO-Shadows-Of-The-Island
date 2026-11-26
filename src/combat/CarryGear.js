@@ -692,11 +692,33 @@ export class CarryGear {
     if (J.j <= SLIDE_N) return; for (let j = 1; j < SLIDE_N; j += 2) J.raw[j] = Math.max(J.raw[j - 1], J.raw[j + 1]); s.lifts.set(J.raw); slideSmooth(s.lifts); J.s = null; }
   // the long gun's hang on the back (chest space) for the body's current pose: from the chest (top swivel) and the lower anchor bone —
   // held by holsterR while slung, and the base of the sling transition so a draw starts / a put-away ends exactly where it hangs
-  hangMatrix(out) {
-    const fL = this.cur.L, ch = this.ch; if (!fL || !fL.F || !ch) return out.copy(this.W.holsterR.matrix); const F = fL.F, b = ch.bones, low = b[F.lowBone];
+  // 95th: the hang is a damped pendulum about the top swivel (hangStep, from late) chasing the body's two-anchor target, instead of
+  // being bolted to the hips every frame — running used to shake the rifle and strap with every stride and the hard 0.6 rad clamp
+  // snapped it at the limit. The target is soft-clamped (tanh), the swing lags/settles like a real slung gun.
+  hangTarget(q) {
+    const F = this.cur.L.F, b = this.ch.bones, low = b[F.lowBone];
     b.chest.updateWorldMatrix(true, false); low.updateWorldMatrix(false, false);
     _a.copy(F.Db).applyMatrix4(low.matrixWorld).applyMatrix4(_m1.copy(b.chest.matrixWorld).invert()).sub(F.Uc).normalize();
-    _q.setFromUnitVectors(F.d0, _a); const ang = 2 * Math.acos(Math.min(1, Math.abs(_q.w))); if (ang > 0.6) _q.slerp(_Q0, 1 - 0.6 / ang);
+    q.setFromUnitVectors(F.d0, _a); const ang = 2 * Math.acos(Math.min(1, Math.abs(q.w))); if (ang > 1e-4) q.slerp(_Q0, 1 - (0.6 * Math.tanh(ang / 0.6)) / ang);
+    return q;
+  }
+  hangStep(dt, reset) {
+    const F = this.cur.L && this.cur.L.F; if (!F || !this.ch) return; const H = this._hang || (this._hang = { q: new THREE.Quaternion(), w: V(), F: null, ok: false });
+    this.hangTarget(_hT);
+    if (reset || !H.ok || H.F !== F || !(dt > 0) || dt > 0.25) { H.q.copy(_hT); H.w.set(0, 0, 0); H.F = F; H.ok = true; return; }
+    const K = 150, C = 2 * 0.6 * Math.sqrt(K); // ≈ 1.9 Hz, ζ 0.6: a small overshoot, settles within half a second
+    for (let n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n, i = 0; i < n; i++) {
+      _hE.copy(_hT).multiply(_hI.copy(H.q).invert()); if (_hE.w < 0) { _hE.x = -_hE.x; _hE.y = -_hE.y; _hE.z = -_hE.z; _hE.w = -_hE.w; }
+      const s = Math.sqrt(1 - Math.min(1, _hE.w * _hE.w)), ang = 2 * Math.acos(Math.min(1, _hE.w)); if (s > 1e-6) _hV.set(_hE.x, _hE.y, _hE.z).multiplyScalar(ang / s); else _hV.set(0, 0, 0);
+      H.w.addScaledVector(_hV, K * h).multiplyScalar(Math.max(0, 1 - C * h));
+      const wl = H.w.length(); if (wl > 1e-7) { _hI.setFromAxisAngle(_hV.copy(H.w).divideScalar(wl), wl * h); H.q.premultiply(_hI).normalize(); }
+    }
+    // never lag further than 0.22 rad off the target (the clearance tables are laid for the target's neighbourhood: no body clipping)
+    const e = H.q.angleTo(_hT); if (e > 0.22) { H.q.rotateTowards(_hT, e - 0.22); H.w.multiplyScalar(0.5); }
+  }
+  hangMatrix(out) {
+    const fL = this.cur.L, ch = this.ch; if (!fL || !fL.F || !ch) return out.copy(this.W.holsterR.matrix); const F = fL.F;
+    const H = this._hang; if (H && H.ok && H.F === F) _q.copy(H.q); else this.hangTarget(_q);
     return out.makeTranslation(F.Uc.x, F.Uc.y, F.Uc.z).multiply(_m2.makeRotationFromQuaternion(_q)).multiply(_m3.makeTranslation(-F.Uc.x, -F.Uc.y, -F.Uc.z)).multiply(F.M);
   }
   // where the support hand holds the strap on the chest while it pulls the gun round (chest space; the strap material under the
@@ -721,9 +743,10 @@ export class CarryGear {
       const tgt = Math.min(0.55, need); const k = force ? 1 : 1 - Math.exp(-(dt || 0.016) * (tgt > this.swing ? 30 : 7)); const prev = this.swing; this.swing += (tgt - this.swing) * k;
       if (force || Math.abs(this.swing - prev) > 1e-5) { _m2.makeTranslation(F.pivot.x, F.pivot.y, F.pivot.z).multiply(_m3.makeRotationAxis(F.axis, this.swing)).multiply(_m1.makeTranslation(-F.pivot.x, -F.pivot.y, -F.pivot.z)); this.gP.matrix.multiplyMatrices(_m2, F.M); this.gP.matrixWorldNeedsUpdate = true; }
     }
-    const fL = this.cur.L; if (fL && fL.F && (this.slung || force)) { this.hangMatrix(W.holsterR.matrix); W.holsterR.matrixWorldNeedsUpdate = true; } // two-anchor rifle hang
+    const fL = this.cur.L; if (fL && fL.F) this.hangStep(dt, force);
+    if (fL && fL.F && (this.slung || force)) { this.hangMatrix(W.holsterR.matrix); W.holsterR.matrixWorldNeedsUpdate = true; } // two-anchor rifle hang
     if (fL && fL.path && this.strapShown) { const p = fL.path; p.target = W.models[this.carryL]; p.slungNow = this.slung; if (!p.hooked || p.dirty) { ch.root.updateMatrixWorld(); p.update(p.target, p.slungNow); } p.dirty = true; } // the hook didn't run last frame (not rendered: off screen, first person, a sim step) → laid here so its tracking never skips frames // the strap: from swivel to swivel over the body, this frame's pose (laid by its render hook; here only where nothing renders it)
   }
 }
-const _Q0 = new THREE.Quaternion();
+const _Q0 = new THREE.Quaternion(), _hT = new THREE.Quaternion(), _hE = new THREE.Quaternion(), _hI = new THREE.Quaternion(), _hV = V();
 let _chN = 0; const chId = (ch) => String(ch._carryId || (ch._carryId = ++_chN));

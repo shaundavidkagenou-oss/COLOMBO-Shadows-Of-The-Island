@@ -253,7 +253,7 @@ export class World {
     if (!extra) { this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = []; }
     for (const G of groups.values()) {
       if (G.list.length < 2) { for (const e of G.list) for (const p of e.pieces) if (p.geo !== e.m.geometry) p.geo.dispose(); continue; } // nothing to gain
-      const B = new THREE.BatchedMesh(G.np, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
+      const B = new THREE.BatchedMesh(G.np, G.nv, G.ni, G.mat); if (G.mat.leafDepth) B.customDepthMaterial = G.mat.leafDepth; B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
       const bid = new Int32Array(G.np).fill(-1), cells = new Int32Array(G.np * CSLOTS).fill(-1), grp = [0];
       for (const { c, m, pieces } of G.list) { for (const p of pieces) { const gid = B.addGeometry(p.geo); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
           bid[iid] = p.bid; if (p.box && occ) cellsOfBox(occ, p.box, cells, iid * CSLOTS, p.box[4], false);

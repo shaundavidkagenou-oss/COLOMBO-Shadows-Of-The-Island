@@ -13,6 +13,7 @@ import { FACADE_WINDOWS } from '../gfx/Textures.js';
 import { geoWorkerMode, takeAnchors, statsSnap } from './BalconyLife.js';
 import { workerMain } from '../core/WorkerPool.js';
 import { rangesFor, rangePre } from '../gfx/CellBatch.js';
+import { setLeafMesh } from './LeafMesh.js';
 
 setPoolCap(64 * 1048576); geoWorkerMode(); // each worker reuses up to 64 MB of builder buffers between chunks (no GC storms)
 const split = (keys) => { for (const k of keys || []) markSplit(k); };
@@ -32,7 +33,7 @@ function pres(mb, marks, detail, transfer) { const end = [...marks]; mark(mb, en
     const P = rangePre(b.pos.view(), b.idx.view(), ranges, detail); out[k] = P; transfer.push(P.idx.buffer, P.coarse.buffer, P.vbox.buffer, P.gb.buffer, P.gs.buffer); }
   return out; }
 workerMain({
-  init(d) { Object.assign(FACADE_WINDOWS, d.facadeWindows || {}); split(d.split); },
+  init(d) { Object.assign(FACADE_WINDOWS, d.facadeWindows || {}); split(d.split); setLeafMesh(d.leafMesh); }, // 95th: same foliage build as the main thread (hedges / sprigs)
   split(d) { split(d); },
   detail({ bs }) { const mb = new MultiBuilder(null, { pooled: true }), marks = [];
     for (const b of bs) { mark(mb, marks); buildDetail(b, mb); }

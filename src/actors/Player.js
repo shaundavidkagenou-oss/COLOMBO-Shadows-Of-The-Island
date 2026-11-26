@@ -56,6 +56,7 @@ export class Player {
     const sens = 0.0024 * Settings.get('mouseSens'); const inv = Settings.get('invertY') ? -1 : 1;
     if (this.control && !this.lookLock) { const zs = this.scoped ? 1 / this.scoped.zoom : this.aiming ? 0.75 : 1; this.camYaw -= (Input.mouseDX * sens + Input.pad.rx * dt * 2.6) * zs; this.camPitch = clamp(this.camPitch + (Input.mouseDY * sens + Input.pad.ry * dt * 2) * inv * zs, -0.5, 1.2); }
     if (Input.wasPressed('camera') && this.control) this.camMode = (this.camMode + 1) % 3;
+    { const A = this.ch.anim; A.fp = this.camMode === 2 && !this.vehicle && !this.boat && !this.cinematic; A.fpYaw = this.camYaw + Math.PI; A.fpPitch = this.camPitch; } // 95th: again after this frame's look input (the body / fists used last frame's view → a frame of lag on every turn)
     if (this.settling) { const S = this.settling; S.t += dt; if (S.t > 1.5 || S.v === this.vehicle || S.v.player || S.v.ai) this.settling = null; else S.v.sync(dt); } // a car just left keeps rocking on its springs for a moment
     if (this.cover && (this.boat || this.exiting || this.entry || this.vehicle || this.indoor || this.swim)) leaveCover(this);
     if (this.breach && (this.boat || this.exiting || this.entry || this.vehicle || this.swim)) endBreach(this);
@@ -98,11 +99,12 @@ export class Player {
     let nx = this.x + Math.sin(moveYaw) * this.speed * dt, nz = this.z + Math.cos(moveYaw) * this.speed * dt;
     let r;
     if (this.bodies && this.bodies.length) { const q = separate(this.bodies, nx, nz, this.y, 0.32, this.ch, 0.55); if (q.hit) { nx = q.x; nz = q.z; this.speed *= 0.92; } } // people are solid; crowd peds get nudged aside
-    if (this.indoor) r = this.indoor.resolve ? this.indoor.resolve(nx, nz) : this.resolveIndoor(nx, nz); // walk-in shops resolve in their own (rotated) frame
+    if (this.indoor) r = this.indoor.resolve ? this.indoor.resolve(nx, nz, this.x, this.z) : this.resolveIndoor(nx, nz); // walk-in shops resolve in their own (rotated) frame
     else {
       if (!this.collision.walkableWater(this.x, this.z, this.y) && !L.isWater(this.x, this.z) && this.control && Input.wasPressed('jump') && L.isWater(this.x + Math.sin(moveYaw) * 2.4, this.z + Math.cos(moveYaw) * 2.4) && tryEnterWater(this, dt, moveYaw, Math.max(mag, 0.5))) { this.sync(); return; } // on the coping beyond the rail: Jump dives in
       if (!this.collision.walkableWater(nx, nz, this.y) && this.collision.walkableWater(this.x, this.z, this.y)) { if (tryEnterWater(this, dt, moveYaw, mag)) { this.sync(); return; } nx = this.x; nz = this.z; this.speed *= 0.5; } else this.edgeT = 0;
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
+      if (this.walkIn) this.walkIn.leafOutside(r, this.x, this.z); // 95th: a shop door swung out onto the pavement is solid from the street
     }
     // auto-avoid other vehicles physically
     if (traffic && !this.indoor) for (const v of traffic.all()) { const lim = 3 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - r.x) > lim || Math.abs(v.z - r.z) > lim) continue; const q = v.pushOut(r.x, r.z, 0.32); if (q) { r.x = q.x; r.z = q.z; if (Math.abs(v.speed) > 3.2 && !(this.hitCd > 0)) { this.hitCd = 1.5; this.ch.anim.play('stumble', 1.1); this.events.emit('hitByVehicle', Math.abs(v.speed), v); } } } // solid body box (parked cars, buses, bikes)
@@ -407,6 +409,10 @@ export class Player {
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
     if (this.camHid) { this.ch.root.visible = true; this.camHid = false; } // set again below while the camera is still inside the body
+    // 95th: the first-person head collapse (scale 0.001, below) is undone on EVERY path that is not the on-foot first-person view —
+    // it used to be undone only at the end of the third-person path, so a cutscene / scripted camera (death → hospital, arrests,
+    // the scope, a vehicle) showed the player with the head shrunk into a long stretched neck
+    if (this.fpHead && (this.cinematic || this.camOverride || this.camMode !== 2 || this.vehicle || this.boat || this.scoped || this.dead || this.ragdoll)) { this.fpHead.scale.setScalar(1); this.fpHead.updateWorldMatrix(false, true); this.fpHead = null; }
     if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle || this.boat;
     if (this.scoped && this.weapons && !v) { this.weapons.scopeCamera(dt); return; }
     this.aimCam = damp(this.aimCam || 0, this.aiming && !v ? 1 : 0, 10, dt);
@@ -458,7 +464,12 @@ export class Player {
       { const wl = L.waterLevel(want.x, want.z); if (wl != null && !L.bridgeWalkAt(want.x, want.z)) { // never straddle the water plane: above it, or (diving) fully under it
         if (this.swim && this.swim.depth > 0.6) want.y = clamp(want.y, L.waterBed(want.x, want.z) + 0.4, wl - 0.25); else if (want.y < wl + 0.25) want.y = wl + 0.25; } }
     }
-    if (snap) this.camPos.copy(want); else this.camPos.lerp(want, 1 - Math.exp(-dt * (t < 1 ? 25 : 12)));
+    // 95th: the smoothing never carries the camera through a wall — pulled in by a wall it jumps in at once (only moving back out
+    // is smoothed), and the smoothed point itself is re-tested against the walls (turning fast along a building used to swing
+    // the lagging camera straight through the facade between two frames)
+    if (snap || (t < 1 && want.distanceToSquared(tgt) < this.camPos.distanceToSquared(tgt))) this.camPos.copy(want); else this.camPos.lerp(want, 1 - Math.exp(-dt * (t < 1 ? 25 : 12)));
+    if (!this.indoor && !snap) { const t2 = this.collision.raycast(tgt.x, tgt.y, tgt.z, this.camPos.x, this.camPos.y, this.camPos.z, 0.35, false, L.LAND_Y + 1.3);
+      if (t2 < 1) { const d = this.camPos.distanceTo(tgt); this.camPos.lerpVectors(tgt, this.camPos, Math.max(0.04, t2 - 0.3 / Math.max(d, 0.5))); t = Math.min(t, t2); } }
     { const nr = t < 1 || this.indoor ? 0.08 : 0.25; if (cam.near !== nr) { cam.near = nr; cam.updateProjectionMatrix(); } } // pressed against a wall or indoors: a short near plane can't cut into the geometry
     cam.position.copy(this.camPos);
     { const wl = L.waterLevel(cam.position.x, cam.position.z); this.camUnder = wl != null && cam.position.y < wl - 0.05 && !L.bridgeWalkAt(cam.position.x, cam.position.z); }

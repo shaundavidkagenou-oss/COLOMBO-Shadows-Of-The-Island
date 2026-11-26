@@ -5,6 +5,7 @@ import { WorkerPool, workerBudget, canWork } from '../core/WorkerPool.js';
 import { SPLIT } from '../gfx/Materials.js';
 import { FACADE_WINDOWS } from '../gfx/Textures.js';
 import { ArrayMulti } from '../gfx/MeshBuilder.js';
+import { leafMeshOn } from './LeafMesh.js';
 import { putAnchors, addStats, balconyMats, dropAnchors } from './BalconyLife.js';
 
 let POOL = null, sentSplit = 0, off = false;
@@ -16,7 +17,7 @@ export function geoPool() {
   sentSplit = SPLIT.size;
   POOL = new WorkerPool('geometry', () => new Worker(new URL('./GeoWorker.js', import.meta.url), { type: 'module' }), {
     size: () => workerBudget(), // the game's thread budget, minus what loading-time pools (BankTex) still hold
-    init: () => ({ facadeWindows: FACADE_WINDOWS, split: [...SPLIT] }) });
+    init: () => ({ facadeWindows: FACADE_WINDOWS, split: [...SPLIT], leafMesh: leafMeshOn() }) });
   if (!POOL.size) { POOL.dispose(); POOL = null; } return POOL;
 }
 export function geoPoolStats() { return POOL && !POOL.dead ? POOL.stats() : null; }

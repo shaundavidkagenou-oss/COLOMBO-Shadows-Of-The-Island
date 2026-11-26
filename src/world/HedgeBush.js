@@ -11,10 +11,12 @@
 // Everything is written into the caller's MultiBuilder: no new materials beyond leavesSmall, no textures, no per-frame cost.
 import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
+import { leafMeshOn, sprig } from './LeafMesh.js';
 let _ico = null; const _m4 = new THREE.Matrix4();
 
 // one leaf card: centre p, outward normal n (unit), size s, tint col; the card lies near the tangent plane of n
 function card(L, p, n, s, rng, col) {
+  if (leafMeshOn()) { sprig(L, p, n, s * 0.8, rng, col); return; } // 95th: a sprig of real leaves (LeafMesh.js), each leaf its own atlas tile
   // tangent frame round n
   let tx = -n[2], ty = 0, tz = n[0]; let tl = Math.hypot(tx, ty, tz); if (tl < 1e-3) { tx = 1; ty = 0; tz = 0; tl = 1; } tx /= tl; ty /= tl; tz /= tl;
   const bx = n[1] * tz - n[2] * ty, by = n[2] * tx - n[0] * tz, bz = n[0] * ty - n[1] * tx;

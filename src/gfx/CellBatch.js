@@ -59,7 +59,7 @@ export function cellBatch(m, cell = 50, cull = null) {
   let nv = 0, ni = 0; for (const p of parts) { nv += p.geo.attributes.position.count; ni += p.geo.index.count; }
   const B = new THREE.BatchedMesh(parts.length, nv, ni, m.material); const cells = new Int32Array(parts.length * CSLOTS);
   for (const p of parts) { const gid = B.addGeometry(p.geo); const iid = B.addInstance(gid); p.geo.dispose(); if (cull) { const bx = p.box; if (!isIdentity(m.matrix)) cells.fill(-1, iid * CSLOTS, iid * CSLOTS + CSLOTS); else cellsOfBox(cull.occ, bx, cells, iid * CSLOTS, bx[4]); } }
-  B.name = m.name; B.castShadow = m.castShadow; B.receiveShadow = m.receiveShadow; B.renderOrder = m.renderOrder; B.layers.mask = m.layers.mask; B.visible = m.visible;
+  if (m.customDepthMaterial) B.customDepthMaterial = m.customDepthMaterial; B.name = m.name; B.castShadow = m.castShadow; B.receiveShadow = m.receiveShadow; B.renderOrder = m.renderOrder; B.layers.mask = m.layers.mask; B.visible = m.visible;
   B.userData = { ...m.userData, cellBatched: true }; B.frustumCulled = m.frustumCulled; B.perObjectFrustumCulled = true;
   B.matrixAutoUpdate = m.matrixAutoUpdate; B.position.copy(m.position); B.quaternion.copy(m.quaternion); B.scale.copy(m.scale); B.matrix.copy(m.matrix);
   B.computeBoundingBox(); B.computeBoundingSphere(); if (cull) installCull(B, { kind: cull.kind || 'cell', cells, cellKind: 'prop', grp: Int32Array.from(grp) });
@@ -81,7 +81,7 @@ export class RangeBatch {
   constructor(g, ranges, material, opts = null) {
     this.g = g; this.ranges = ranges; this.i = 0; let nv = 0, ni = 0; for (const r of ranges) { nv += r[1] - r[0]; ni += r[3] - r[2]; }
     this.opts = opts; this.coarse = []; this.bid = new Int32Array(ranges.length).fill(-1);
-    this.mesh = new THREE.BatchedMesh(ranges.length, nv, ni, material); this.mesh.perObjectFrustumCulled = true;
+    this.mesh = new THREE.BatchedMesh(ranges.length, nv, ni, material); this.mesh.perObjectFrustumCulled = true; if (material.leafDepth) this.mesh.customDepthMaterial = material.leafDepth;
     this.IA = nv > 65535 ? Uint32Array : Uint16Array; this.names = Object.keys(g.attributes);
     // 93rd: a geometry worker's precomputed per-building data (rangePre below) — used only if it matches these ranges exactly
     const P = opts && opts.pre; this.pre = P && P.n === ranges.length && P.ni === ni && P.idx instanceof this.IA ? P : null;

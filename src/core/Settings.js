@@ -29,6 +29,7 @@ const DEFAULTS = {
   sgsrSharpness: 2.0, sgsrEdgeDir: true, // SGSR EdgeSharpness (Qualcomm's range 1.0–2.0, default 2.0) · its edge-direction variant
   cpuWorkers: 'auto', cpuPanel: false, // 93rd: background compute threads (core/WorkerPool.js: auto = hardware threads − 3, at most 4; 0 = main thread only) · the in-game CPU diagnostics panel (ui/CpuPanel.js)
   benchSec: 30, benchWarm: 5, benchScene: 'city', // in-game benchmark: measured seconds and warm-up seconds per configuration (Benchmark.js)
+  leafMesh: true, // 95th: trees / shrubs / hedges from real leaf geometry (world/LeafMesh.js) — false: the 88th leaf cards (takes effect on reload)
   switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
   bindings: { ...DEFAULT_BINDINGS },
 };

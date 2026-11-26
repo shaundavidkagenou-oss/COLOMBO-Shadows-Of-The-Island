@@ -29,7 +29,7 @@ function fadeCompile(sh) {
     if (vf < 0.999 && vf <= vn) discard; }`);
 }
 function material() { // the shrubs' leaf material without the wind sway (vines are pinned to the masonry)
-  if (vineMat) return vineMat; const src = MAT.leavesSmall || MAT.leaves; vineMat = src.clone(); vineMat.name = 'vine';
+  if (vineMat) return vineMat; const src = MAT.leavesSmall || MAT.leaves; vineMat = src.clone(); vineMat.name = 'vine'; delete vineMat.userData.leafMesh; /* 95th: creepers stay leaf CARDS (their own geometry) — not the trees' per-leaf mesh path */
   // 88th: the creeper cards draw the photographic leaf sheet through the same per-card leaf layout as the trees (LeafAtlas.js)
   const atlas = !!TEX.leafAtlas && src.map === TEX.leafAtlas; vineMat.onBeforeCompile = atlas ? (sh) => { fadeCompile(sh); patchLeafShader(sh, '0.0'); } : fadeCompile;
   vineMat.customProgramCacheKey = () => (atlas ? 'vineLeaf88' : 'vine'); return vineMat; }

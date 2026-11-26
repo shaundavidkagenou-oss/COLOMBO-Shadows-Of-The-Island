@@ -903,7 +903,7 @@ export class PoliceResponse {
     const dx = gx - ox, dz = gz - oz, d = Math.hypot(dx, dz); if (d < 0.04) return 0;
     o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -6 * dt, 4 * dt); const st = Math.min(d, Math.max(0.4, o.curSp) * dt);
     const nlx = ox + dx / d * st, nlz = oz + dz / d * st; if (Math.abs(nlx) < 1.2 && nlz > -1.6 && nlz < 1.4) s.npcDoor = { side: oz > -0.07 ? 1 : -1, f: W.frame }; // he pushes the door like anyone
-    const [wx, wz] = W.world(s, nlx, nlz); const r = s.room && s.room.proxy ? W.resolve(s, wx, wz) : { x: wx, z: wz }; o.x = r.x; o.z = r.z; o.y = s.y0;
+    const [wx, wz] = W.world(s, nlx, nlz); const r = s.room && s.room.proxy ? W.resolve(s, wx, wz, o.x, o.z) : { x: wx, z: wz }; o.x = r.x; o.z = r.z; o.y = s.y0;
     o.yaw += angDiff(Math.atan2(dx * s.cs + dz * s.sn, -dx * s.sn + dz * s.cs), o.yaw) * Math.min(1, dt * 7); this.placeOfficer(o); return Math.max(0.4, o.curSp);
   }
   leaveRoom(o, dt) { const S = { s: o.inRoom.s, W: this.g.interiors.walkIn }; const [ox, oz] = S.W.local(S.s, o.x, o.z); if (oz > 1.15) { o.inRoom = null; o.path = null; return 0; } return this.moveIn(o, S, 0, 1.4, 1.8, dt); }

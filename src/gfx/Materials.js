@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { powerMaterial } from '../world/PowerGrid.js';
 import { barkTextures } from './RealTextures.js';
+import { Settings } from '../core/Settings.js';
+import { setLeafMesh, leafMeshOn, leafMeshDepth } from '../world/LeafMesh.js';
 import { applyInteriorMapping, INTERIOR, occupancy, winFlag, syncWindowLayers } from './InteriorMapping.js';
 export const MAT = {};
 // ---------------------------------------------------------------------------------------------- own material per object type
@@ -217,8 +219,12 @@ export function buildMaterials() {
   // material (the species differences are per-card styles and vertex tints), so the forest draws one leaf batch instead of
   // three and Texture Studio shows a single "Tree leaves" material whose base colour is that image.
   MAT.leaves = std({ map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.72, vertexColors: true });
-  if (TEX.leafAtlas) { MAT.leaves.name = 'Tree leaves'; MAT.leavesBright = MAT.foliage = MAT.leaves; }
-  else { MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }); MAT.foliage = MAT.leavesBright; }
+  if (TEX.leafAtlas) { MAT.leaves.name = 'Tree leaves'; MAT.leavesBright = MAT.foliage = MAT.leaves;
+    // 95th: real leaf geometry (world/LeafMesh.js) — each leaf one atlas tile, the texture coordinates are atlas coordinates (any
+    // normal / roughness map added in Texture Studio lines up leaf for leaf); Settings 'leafMesh' false = the 88th leaf cards
+    // (the shadow-pass material is a non-enumerable property, not userData: material clones JSON-copy userData)
+    setLeafMesh(Settings.get('leafMesh') !== false); if (leafMeshOn()) { MAT.leaves.userData.leafMesh = true; Object.defineProperty(MAT.leaves, 'leafDepth', { value: leafMeshDepth(), configurable: true }); MAT.leaves.roughness = 0.62; } }
+  else { setLeafMesh(false); MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }); MAT.foliage = MAT.leavesBright; }
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers

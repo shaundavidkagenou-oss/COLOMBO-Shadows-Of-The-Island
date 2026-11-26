@@ -218,7 +218,7 @@ export function matFor(name, materials) {
 }
 export function meshFor(name, g, materials, opts = {}) {
   const mat = matFor(name, materials); if (!mat) { console.warn('missing material', name); return null; }
-  const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
+  const m = new THREE.Mesh(g, mat); if (mat.leafDepth) m.customDepthMaterial = mat.leafDepth; m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
   if (FOLIAGE.has(name) || FOLIAGE.has(name.slice(name.lastIndexOf('.') + 1))) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
   return m;
 }

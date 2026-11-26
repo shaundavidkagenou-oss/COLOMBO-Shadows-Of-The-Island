@@ -1789,6 +1789,7 @@ export class Animator {
       if (b.shL && (pl || b.shL.rotation.y)) b.shL.rotation.set(0, -PROTRACT_AXIS * pl, 0); } // support shoulder reaches forward to the forend the same way
     const seated = (this.seated && this.seatW > 0) || !!this.board; // boarding (getting in / out, Boarding.js) counts as seated: no gestures, fight or body poses layered on it
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
+    if (this.ik && this.ik.pre && !seated) this.ik.pre(); // 95th: first-person weapon re-laid on this frame's view line before the hands are solved onto it (Weapons.fpRealign)
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1, this.ik.poleR || null); /* poleR: shouldered long guns lift the firing elbow out to the side, clear of the stock (49th) */ if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (this.reach && !seated) applyReach(this, b); else this._rLean = undefined; // one hand onto a world point with a solved grasp (opening a car door by its handle)
     if (this.fight) applyFight(this, dt, solveArmIK, seated);

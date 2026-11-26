@@ -173,11 +173,39 @@ function fallbackAtlas() {
     g.bezierCurveTo(cx + 34, cy - 20, cx + 30, cy + 40, cx, cy + 56); g.bezierCurveTo(cx - 30, cy + 40, cx - 34, cy - 20, cx, cy - 58); g.fill(); g.strokeStyle = 'rgba(220,230,160,0.5)'; g.beginPath(); g.moveTo(cx, cy - 56); g.lineTo(cx, cy + 58); g.stroke(); }
   return finish(cv, 'Tree leaves (fallback sheet)');
 }
+// 95th — the atlas mip chain, built here instead of by the GPU:
+//  • colour bleed: texels outside the leaves (keyed black, alpha < ~0.6) take their tile's mean leaf colour, so the filtered
+//    edge of an alpha-tested leaf never picks up a dark rim from the black background (and far mips are not darkened);
+//  • alpha coverage kept per level: a box-filtered alpha mip loses coverage at the 0.5 alpha test (thin tips, serrations,
+//    the skeleton leaf erode first — distant crowns went thin and shimmered). Each level's alpha is scaled so the share of
+//    texels passing the test equals level 0's (binary search on the scale) — distant leaves keep their weight.
+function leafMips(cv) {
+  const W = cv.width, H = cv.height, x = cv.getContext('2d', { willReadFrequently: true }); const img = x.getImageData(0, 0, W, H);
+  const mean = (d, w, h) => { const out = []; for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 4; tx++) { let r = 0, g = 0, b = 0, n = 0;
+    const x0 = Math.floor(tx * w / 4), x1 = Math.floor((tx + 1) * w / 4), y0 = Math.floor(ty * h / 2), y1 = Math.floor((ty + 1) * h / 2);
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { const i = (yy * w + xx) * 4; if (d[i + 3] < 160) continue; r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+    out.push(n ? [r / n, g / n, b / n] : [60, 90, 40]); } return out; };
+  const bleed = (d, w, h, M) => { for (let yy = 0; yy < h; yy++) { const ty = Math.min(1, Math.floor(yy * 2 / h)); for (let xx = 0; xx < w; xx++) { const i = (yy * w + xx) * 4; if (d[i + 3] >= 150) continue;
+    const m = M[ty * 4 + Math.min(3, Math.floor(xx * 4 / w))]; const k = d[i + 3] / 150; d[i] = d[i] * k + m[0] * (1 - k); d[i + 1] = d[i + 1] * k + m[1] * (1 - k); d[i + 2] = d[i + 2] * k + m[2] * (1 - k); } } };
+  const cover = (d, s) => { let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] * s >= 127.5) n++; return n / (d.length / 4); };
+  const M = mean(img.data, W, H); bleed(img.data, W, H, M); x.putImageData(img, 0, 0); const c0 = cover(img.data, 1); const mips = [img];
+  let cur = img; while (cur.width > 1 || cur.height > 1) {
+    const w = Math.max(1, cur.width >> 1), h = Math.max(1, cur.height >> 1), s = cur.data, cw = cur.width, ch = cur.height; const nx = new ImageData(w, h), d = nx.data, A = new Float32Array(w * h);
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { let r = 0, g = 0, b = 0, a = 0, wsum = 0;
+      for (let k = 0; k < 4; k++) { const sx = Math.min(cw - 1, xx * 2 + (k & 1)), sy = Math.min(ch - 1, yy * 2 + (k >> 1)), i = (sy * cw + sx) * 4; const wa = s[i + 3] + 1; r += s[i] * wa; g += s[i + 1] * wa; b += s[i + 2] * wa; wsum += wa; a += s[i + 3]; }
+      const o = (yy * w + xx) * 4; d[o] = r / wsum; d[o + 1] = g / wsum; d[o + 2] = b / wsum; A[yy * w + xx] = a / 4; }
+    let lo = 0.5, hi = 4; const test = (sc) => { let n = 0; for (let i = 0; i < A.length; i++) if (A[i] * sc >= 127.5) n++; return n / A.length; };
+    if (w * h >= 16) { for (let it = 0; it < 14; it++) { const mid = (lo + hi) / 2; if (test(mid) < c0) lo = mid; else hi = mid; } } else lo = hi = 1;
+    const sc = (lo + hi) / 2; for (let i = 0; i < A.length; i++) d[i * 4 + 3] = Math.min(255, A[i] * sc);
+    if (w >= 8 && h >= 8) bleed(d, w, h, mean(d, w, h)); mips.push(nx); cur = nx; }
+  void cover; return mips;
+}
 export async function loadLeafAtlas() {
   if (typeof document === 'undefined' || typeof Image === 'undefined') return null;
   const img = await new Promise((res) => { const im = new Image(); im.decoding = 'async'; im.onload = () => res(im); im.onerror = () => res(null); im.src = assetBase() + 'assets/vegetation/' + LEAF_FILE; });
   if (!img) { console.warn('leaf atlas missing — drawn fallback leaves'); return fallbackAtlas(); }
   const cv = document.createElement('canvas'); cv.width = cv.height = LEAF_PX; const x = cv.getContext('2d', { willReadFrequently: true });
   x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, LEAF_PX, LEAF_PX); keyAlpha(cv);
-  const t = finish(cv, 'Tree leaves · ' + LEAF_FILE); t.userData.sourceFile = 'assets/vegetation/' + LEAF_FILE; t.userData.sourceSize = [img.naturalWidth, img.naturalHeight]; return t;
+  const t = finish(cv, 'Tree leaves · ' + LEAF_FILE); try { t.mipmaps = leafMips(cv); t.generateMipmaps = false; } catch (e) { console.warn('leaf atlas mips: GPU mips instead', e); t.mipmaps = []; t.generateMipmaps = true; }
+  t.userData.sourceFile = 'assets/vegetation/' + LEAF_FILE; t.userData.sourceSize = [img.naturalWidth, img.naturalHeight]; return t;
 }
