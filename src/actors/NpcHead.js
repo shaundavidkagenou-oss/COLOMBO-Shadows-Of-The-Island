@@ -78,7 +78,7 @@ const EYE_RINGS_LO = [[0.15, 0, 1], [0.33, 1, 0.9], [0.5, 1, 0.35], [0.56, 2, 0.
 const GEOS = new Map();
 // opts: { beard: null|'full'|'short'|'goatee', mous: bool, hijab: bool, hair: [r,g,b] linear }; li: 0 full, 1 distance LOD
 export function npcHeadGeometry(v, opts, li = 0) {
-  const hk = opts.hair.map((c) => Math.round(c * 40)).join(',');
+  const hk = opts.beard || opts.mous ? opts.hair.map((c) => Math.round(c * 40)).join(',') : '-'; // 96th: the hair colour is only in the facial-hair shell — clean-shaven heads of any hair colour share one geometry
   const key = [li, v, opts.beard || '-', opts.mous ? 1 : 0, opts.hijab ? 1 : 0, hk].join('|'); let g = GEOS.get(key); if (g) return g;
   const s = shared(li); const D = SETS[li]; const V = D.variants[v]; const RINGS = li ? EYE_RINGS_LO : EYE_RINGS, LON = li ? EYE_LON_LO : EYE_LON; const L = V.L; const N = s.N, M = s.masks;
   const qp = new Int16Array(dec(V.pos).buffer); const P = new Float32Array(N * 3); for (let i = 0; i < N * 3; i++) P[i] = qp[i] * V.q;

@@ -213,7 +213,7 @@ export class StreetLife {
     const n = r.pick(cand); // a place to go together: a lawn or a bench, reachable on foot
     const spots = C.nearPOIs(n.x, n.z, 160).filter((q) => (q.type === 'lawn' || q.type === 'bench') && C.poiNode(q) !== null && C.comp[C.poiNode(q)] === C.mainComp); if (!spots.length) return false;
     const q = r.pick(spots); const path = C.route(n.id, C.poiNode(q)); if (!path || path.cost > 260) return false; // a short stroll to a bench / the grass
-    const a = C.makePed(r.pick(m), n.x, n.z, n.id), b = C.makePed(r.pick(w), n.x + 0.6, n.z, n.id); if (!a || !b) { if (a) C.remove(a); if (b) C.remove(b); return false; }
+    const a = C.makePed(C.vary(r.pick(m), r.int(0, 1e6)), n.x, n.z, n.id), b = C.makePed(C.vary(r.pick(w), r.int(0, 1e6)), n.x + 0.6, n.z, n.id); /* 96th: look variants */ if (!a || !b) { if (a) C.remove(a); if (b) C.remove(b); return false; }
     const pace = 1.05 + r.next() * 0.15; a.pace = b.pace = pace; a.jog = b.jog = false; a.partner = b; b.partner = a; a.route = path; a.goalPoi = null; a.coupleSpot = q; a.state = 'walk'; C.pickNext(a);
     b.state = 'scene'; b.scene = { kind: 'follow', lead: a, t: 0 }; const cp = { a, b, spot: q, t: 0 }; this.couples.push(cp); this.stats.couple++; return true;
   }

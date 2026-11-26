@@ -204,7 +204,7 @@ export class MindSystem {
   // ---- identity
   attach(p, opts = {}) {
     const C = this.C, sp = p.sp || {}; let m = null; const dist = opts.district ?? L.districtIdAt(p.x, p.z);
-    const k = sp._k; const pid = k !== undefined && dist ? `${k}@${dist}` : null;
+    const k = sp._k; const pid = k !== undefined && dist ? (sp._vi ? `${k}.${sp._vi}@${dist}` : `${k}@${dist}`) : null; // 96th: look variant → its own resident (saves without one stay valid)
     if (pid && !opts.anon) { const old = this.personas.get(pid); if (old && !old.live && !old.dead) { m = old; if (m.needTraits && p.sp) { genTraits(m, hashStr(pid), sp); m.needTraits = false; } } else if (!old) { m = new Mind(); m.pid = pid; m.home = dist; genTraits(m, hashStr(pid), sp); this.personas.set(pid, m); this.evict(); } }
     if (!m) { m = this.pool.pop() || new Mind(); m.reset(); genTraits(m, opts.seed ?? ((this.rng.next() * 4294967296) >>> 0), sp); m.home = opts.home ?? null; }
     const now = this.now(); m.live = true; m.p = p; this.baseline(m, p); if (m.lastT < 0) m.em.set(m.base); else relax(m, Math.min(3600, now - m.lastT)); m.lastT = now;
@@ -400,7 +400,7 @@ export class MindSystem {
   load(d) {
     this.personas.clear(); if (!d || !Array.isArray(d.minds)) return 0; let n = 0;
     for (const o of d.minds) {
-      if (!o || typeof o.id !== 'string') continue; const [k, dist] = o.id.split('@'); const sp = this.C.specs ? this.C.specs[+k] : null; const m = new Mind(); m.pid = o.id; m.home = dist || null; genTraits(m, hashStr(o.id), sp || {}); m.needTraits = !sp; /* specs not built yet: redo with the real look on first sight */
+      if (!o || typeof o.id !== 'string') continue; const [k, dist] = o.id.split('@'); const sp = this.C.specs ? this.C.specs[parseInt(k, 10)] : null; const m = new Mind(); m.pid = o.id; m.home = dist || null; genTraits(m, hashStr(o.id), sp || {}); m.needTraits = !sp; /* specs not built yet: redo with the real look on first sight */
       if (Array.isArray(o.e)) for (let i = 0; i < 10; i++) m.em[i] = clamp01(+o.e[i] || 0); m.lastT = +o.t || 0; m.dead = !!o.d;
       (o.m || []).slice(0, MEM_CAP).forEach((e, i) => Object.assign(m.mem[i], { k: e[0], who: e[1], x: e[2], z: e[3], t: e[4], imp: e[5], val: e[6], n: e[7] || 1 }));
       for (const h in o.r || {}) { const r = o.r[h]; m.rel[h] = { like: r[0], fear: r[1], n: r[2], harass: r[3], helped: r[4], crimes: r[5], last: r[6] }; }

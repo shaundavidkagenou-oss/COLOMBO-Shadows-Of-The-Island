@@ -14,7 +14,8 @@ import { buildLayout } from './EventLayouts.js';
 import { evMaterial, chairGeometry } from './EventKit.js';
 import { atlasJob } from './EventArt.js';
 import { Attendee, Staff, Performer } from './EventPeople.js';
-import { makeAppearance } from '../../actors/Appearance.js';
+import { makeAppearance, lookVariant, LOOK_VARIANTS } from '../../actors/Appearance.js';
+const useKey = (sp) => (sp._k ?? sp.preset) + '.' + (sp._vi | 0); // 96th: a person = look × variant (several variants of one look may attend)
 import { mulberry32 } from '../../core/rng.js';
 import * as L from '../Layout.js';
 
@@ -173,9 +174,11 @@ export class EventSite {
   // ------------------------------------------------------------------------------------------------ people
   allAgents() { return [...this.visitors, ...this.staff, ...this.crew]; }
   visitorSpec(role) {
-    const pool = (this.crowd.specs || []).filter((sp) => !NOT_VISITOR.has(sp.preset) && !this.usedSpecs.has(sp));
+    const U = this.usedSpecs, free = (sp) => { for (let v = 0; v < LOOK_VARIANTS; v++) if (!U.has((sp._k ?? sp.preset) + '.' + v)) return true; return false; };
+    const pool = (this.crowd.specs || []).filter((sp) => !NOT_VISITOR.has(sp.preset) && free(sp));
     if (!pool.length) return null; const want = role === 'tourist' ? pool.filter((sp) => TOURIST.has(sp.preset)) : role === 'family' ? pool.filter((sp) => FAMILY.has(sp.preset)) : role === 'spectator' ? pool.filter((sp) => sp.preset && sp.preset.includes('cricket_fan')) : null;
-    const from = want && want.length ? want : pool; const sp = from[Math.floor(this.rng() * from.length)]; this.usedSpecs.add(sp); return sp; }
+    const from = want && want.length ? want : pool; const base = from[Math.floor(this.rng() * from.length)]; const v0 = Math.floor(this.rng() * LOOK_VARIANTS); let sp = base;
+    for (let j = 0; j < LOOK_VARIANTS; j++) { const c = lookVariant(base, (v0 + j) % LOOK_VARIANTS); if (!U.has(useKey(c))) { sp = c; break; } } U.add(useKey(sp)); return sp; }
   roleFor(sp) { if (TOURIST.has(sp.preset)) return 'tourist'; if (FAMILY.has(sp.preset)) return 'family'; if (this.ev.T.cat === 'sport') return 'spectator'; return 'visitor'; }
   // walk-in visitors: start on a pavement node out of sight 45–120 m away and walk the city graph to the entrance node
   spawnNodes() {
@@ -196,7 +199,7 @@ export class EventSite {
   recruit() { this.mgr.mk('recruit');
     const C = this.crowd, e = this.s.entry || this.gateOut; for (let k = 0; k < 8; k++) { const p = C.peds[Math.floor(this.rng() * C.peds.length)]; if (!p || p.keep || p.job || p.state !== 'walk' || p.crossing || p.jog || p.evIncoming || p.homeCar || p.poi || NOT_VISITOR.has(p.sp && p.sp.preset)) continue;
       const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < 25 || d > 140 || p.nextNode === undefined) continue; const from = p.nextNode ?? p.node; const route = C.route(from, this.node); if (!route) continue;
-      p.goalPoi = null; p.route = route; p.evIncoming = this; p.keep = true; const a = new Attendee(this, this.roleFor(p.sp), null); a.p = p; p.onArrive = (pp) => this.arrive(pp, a); this.incoming.push(a); this.usedSpecs.add(p.sp); this.stats.recruited++; return true; }
+      p.goalPoi = null; p.route = route; p.evIncoming = this; p.keep = true; const a = new Attendee(this, this.roleFor(p.sp), null); a.p = p; p.onArrive = (pp) => this.arrive(pp, a); this.incoming.push(a); this.usedSpecs.add(useKey(p.sp)); this.stats.recruited++; return true; }
     return false;
   }
   arrive(p, a) { this.mgr.mk('arrive'); // at the entrance node: the event takes them over

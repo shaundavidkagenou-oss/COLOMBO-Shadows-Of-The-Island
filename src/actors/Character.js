@@ -23,6 +23,7 @@ import { buildHat } from './HeadWear.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
 import { hasDancerBody, dancerGeometry, makeDancerSkeleton, dancerMaterials, attachDancerEyes, dancerHeelFit, queueDancerPaint, morphsMatchHeroes } from './DancerBody.js';
 import { DancerRig } from './DancerRig.js';
+import { acquireVariant, releaseVariant } from './LookVariant.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2', 'clothB', 'cap'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
@@ -1172,8 +1173,9 @@ export class Character {
   constructor(spec) {
     if (HOOKS.spec) spec = HOOKS.spec(spec) || spec; // 68th: model tools (NPC look overrides)
     this.spec = spec; if (hasDancerBody(spec.dancerBody)) { this.initDancer(spec); return; }
-    const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
-    let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); if (geo.userData.npcBody) compactNpcGeo(geo); geoCache.set(key, geo); }
+    const base = !spec.hero && spec._base ? spec._base : null; this.baseSpec = base || spec; // 96th: a look variant wears its base look's body geometry, recoloured (LookVariant.js)
+    const key = JSON.stringify(this.baseSpec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
+    let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(this.baseSpec); if (geo.userData.npcBody) compactNpcGeo(geo); geoCache.set(key, geo); }
     if (spec.hero) { this.heroGeoKey = key; heroRef(geoCache, heroGeoKeys, key, 1); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
     const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat = null; const npcHead = !spec.hero;
@@ -1191,6 +1193,9 @@ export class Character {
     this.mesh = new THREE.SkinnedMesh(geo, mats);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
     if (geo.userData.npcBody) this.initBodyLod(key, geo);
+    // look variant: the far body's colours now (crowd people appear 40+ m away, beyond the 20 m switch), the near body's on
+    // the first frame it is needed (ensureHi) — many people never come close enough to need it
+    if (base && geo.userData.npcBody) { const lo = acquireVariant(this.geoLo, base, spec); if (lo) { this.varGeos = [lo]; this.geoLo = lo; this.hiPend = true; this.bodyLo = true; this.mesh.geometry = lo; } }
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
     this.clothHang = !!(geo.userData.npcBody && (spec.outfit === 'saree' || spec.outfit === 'salwar' || spec.shawl || spec.towel)); // drives the clothB pendulum (Animator.driveCloth)
@@ -1202,14 +1207,15 @@ export class Character {
     LIVE.add(this);
     if (HOOKS.character) HOOKS.character(this); // 68th: model tools (replacement model / clothing textures)
   }
+  ensureHi() { if (!this.hiPend) return this.geoHi; this.hiPend = false; const hi = acquireVariant(this.geoHi, this.baseSpec, this.spec); if (hi) { (this.varGeos || (this.varGeos = [])).push(hi); this.geoHi = hi; if (!this.bodyLo) this.mesh.geometry = hi; } return this.geoHi; }
   // anatomical crowd bodies (NpcBody.js): a far version (coarse body index level, lighter shoes, no hem strips) swapped in
   // beyond ~20 m (a person is then under ~90 px tall). Same vertex layout / bones / materials: only the geometry changes,
   // decided per frame from the camera distance at render time (the swap shows from the next frame, shadows included).
   initBodyLod(key, geo) {
-    const kl = key + '|lo'; let lo = geoCache.get(kl); if (!lo) { lo = compactNpcGeo(buildBodyGeometry(Object.assign({}, this.spec, { _lod: 1 }))); geoCache.set(kl, lo); }
+    const kl = key + '|lo'; let lo = geoCache.get(kl); if (!lo) { lo = compactNpcGeo(buildBodyGeometry(Object.assign({}, this.baseSpec || this.spec, { _lod: 1 }))); geoCache.set(kl, lo); }
     this.geoHi = geo; this.geoLo = lo; this.bodyLo = false; const m = this.mesh; const e = m.matrixWorld.elements;
     m.onBeforeRender = (r, sc, cam) => { if (this.lodLock) return; const c = cam.matrixWorld.elements; const d2 = (e[12] - c[12]) ** 2 + (e[13] - c[13]) ** 2 + (e[14] - c[14]) ** 2; const far = this.bodyLo ? d2 > 18 * 18 : d2 > 22 * 22;
-      if (far !== this.bodyLo) { this.bodyLo = far; m.geometry = far ? this.geoLo : this.geoHi; } };
+      if (far !== this.bodyLo) { this.bodyLo = far; if (!far && this.hiPend) this.ensureHi(); m.geometry = far ? this.geoLo : this.geoHi; } };
   }
   // club dancers (DancerBody.js): one continuous MakeHuman-derived body with its own fitted 57-bone skeleton, the protagonists'
   // skin shading, a GPU-painted skin texture (queued; the club flushes it with the renderer), expression morphs on the shared
@@ -1270,12 +1276,12 @@ export class Character {
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); if (!this.disposed) { if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
+  dispose() { LIVE.delete(this); if (!this.disposed) { if (this.varGeos) { for (const g of this.varGeos) releaseVariant(g); this.varGeos = null; } if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
   // 73rd: one gauntlet off (a traffic officer flings it down before he rides after you): this character's body geometry —
   // hi and lo detail — gets its own colour attribute with the glove / cuff on that hand in skin colour; every other attribute
   // stays shared with the cached look (no new buffers apart from the colours, no new material, no shader work)
   bareHand(side = 'R') {
-    const sp = this.spec; if (!sp.gloves || this.bare || !this.mesh.geometry.attributes.color) return false; const bones = this.mesh.skeleton.bones;
+    const sp = this.spec; if (!sp.gloves || this.bare || !this.mesh.geometry.attributes.color) return false; this.ensureHi(); const bones = this.mesh.skeleton.bones;
     const ids = new Set(['hand' + side, 'fore' + side].map((n) => bones.findIndex((b2) => b2.name === n)).filter((i) => i >= 0));
     const gl = new THREE.Color(sp.gloves), cf = new THREE.Color(sp.cuff || sp.gloves), sk = new THREE.Color(sp.skin || '#a8734f');
     const near = (c, r, g2, b3) => Math.abs(c.r - r) + Math.abs(c.g - g2) + Math.abs(c.b - b3) < 0.09;
