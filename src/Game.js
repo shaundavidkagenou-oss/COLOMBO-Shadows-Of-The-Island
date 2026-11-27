@@ -119,6 +119,9 @@ import { ActivityManager } from './activities/ActivityManager.js'; // 92nd: unde
 import { setWorkerOverride } from './core/WorkerPool.js'; // 93rd: the background compute thread budget (Settings → Graphics → CPU worker threads)
 import { FrameMon, CpuPanel } from './ui/CpuPanel.js'; // 93rd: in-game CPU diagnostics
 import { CityEvents } from './world/CityEvents.js'; // 81st: dynamic city events (manager, sites, people, phone app data)
+import { Construction } from './world/Construction.js'; // building works: hoarded sites, crews, lorries (this update)
+import { StreetServices } from './world/StreetServices.js'; // sweepers, litter bins and the evening refuse round
+import { SimDirector } from './world/SimDirector.js'; // the one mind over the city's systems (activity, budget, persistence)
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', rsvan: 'Roadside service van', flatbed: 'Recovery flatbed', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -195,6 +198,14 @@ export class Game {
     this.trafficDuty = new TrafficDuty(this);
     this.schoolLife = new SchoolLife(this);
     this.cricket = new StreetCricket(this);
+    { // building works, street sweepers / bins, and the world director over them — placed and warmed now, on the loading
+      // screen: a site hoarding is never built while the player is walking past it (Construction.js, StreetServices.js)
+      progress(0.868, 'Works and street services'); await tick(); const t0 = performance.now();
+      try { this.construction = new Construction(this); await this.construction.prewarm(tick); } catch (e) { console.warn('construction prewarm', e); this.construction = null; }
+      try { this.streetSvc = new StreetServices(this); this.streetSvc.prewarm(); } catch (e) { console.warn('street services prewarm', e); this.streetSvc = null; }
+      this.simD = new SimDirector(this);
+      this.worldAlive = { ms: Math.round(performance.now() - t0), sites: this.construction ? this.construction.sites.length : 0, bins: this.streetSvc ? this.streetSvc.bins.length : 0, beats: this.streetSvc ? this.streetSvc.beats.length : 0 };
+    }
     { // 81st: dynamic city events — venue sites measured, shared event materials / chair geometry, staff + performer bodies built now (never mid-game)
       progress(0.865, 'City events'); await tick(); this.cityEvents = TEST && new URLSearchParams(location.search).has('noev') ? null : new CityEvents(this); /* &noev: tests only — the before/after baseline */ if (this.cityEvents) try { await this.cityEvents.prewarm(tick); const sp = this.cityEvents.specs(); for (let i = 0; i < sp.length; i++) { try { new Character(sp[i]).dispose(); } catch (e) { console.warn('event staff prewarm', e); } if (i % 8 === 7) await tick(); } } catch (e) { console.warn('city events prewarm', e); } }
     this.birds = new Birds(this); // house crows, rock pigeons, rose-ringed parakeets
@@ -343,7 +354,7 @@ export class Game {
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
     if (this.atm) this.atm.reset(); BankSound.stopNow(); // 67th: the ATM screen is never part of a save; the room tone restarts on entering
-    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); try { this.cityEvents?.restore(d.events); this.activities?.restore(d.activities); } catch (e) { console.warn('events restore', e); this.cityEvents?.reset(1); } /* 81st */ if (this.power) { this.power.restoreAll(); this.power.settle(); this.power.restoreState(d.power); } this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); try { this.cityEvents?.restore(d.events); this.activities?.restore(d.activities); } catch (e) { console.warn('events restore', e); this.cityEvents?.reset(1); } /* 81st */ if (this.power) { this.power.restoreAll(); this.power.settle(); this.power.restoreState(d.power); } this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ try { if (this.simD && d.world) this.simD.restore(d.world); } catch (e) { console.warn('world restore', e); } /* this update: works roster, bins, the business day */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ if (this.atm) this.atm.reset(); BankSound.stopNow(); this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     { const P = this.player; if (P.indoor && P.indoor.walkIn) { const r = P.indoor.room; P.indoor = null; if (r && r.onExit) r.onExit(); } } // 67th: a loaded game starts on the street (stale walk-in room state cleared)
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
@@ -411,7 +422,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.walkIn && P.indoor.site) { const d = P.indoor.site.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.hospital) { pos = this.hospital.outsidePos(); } /* 74th: saved in the forecourt, not inside the building */ /* 67th: in a walk-in shop / the bank (e.g. the ATM's autosave) → saved on the pavement outside its door, never inside the building shell */ else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; } else if (P.boat) pos = { x: MARINA.gangTop.x, z: MARINA.gangTop.z, yaw: -Math.PI / 2 }; /* on a boat: the save puts you on the quay by the marina */
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
-    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), power: this.power ? this.power.serialize() : null, player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), events: this.cityEvents ? this.cityEvents.serialize() : null, activities: this.activities ? this.activities.serialize() : null, clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), power: this.power ? this.power.serialize() : null, player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), events: this.cityEvents ? this.cityEvents.serialize() : null, activities: this.activities ? this.activities.serialize() : null, world: this.simD ? this.simD.serialize() : null, clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60); if (this.boats) this.boats.onRest(); /* slept: boats on order are delivered */
@@ -631,7 +642,13 @@ export class Game {
       squad: SQUAD_DEFS.map((q) => ({ full: q.full, role: q.role, accent: q.accent, active: q.id === me, skills: sk.summary(q.id) })), missions: (st.done || []).length, admissions: hs.admissions || 0, busted: (this.police && this.police.stats && this.police.stats.arrests) || 0,
       carTotal: STUNTS.filter((q) => q.kind === 'car').length, bikeTotal: STUNTS.filter((q) => q.kind !== 'car').length, skillDefs: SKILLS };
   }
-  hourFactor() { const h = this.atmos.hour; if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
+  // how many people the street should hold right now: the hour curve is the floor, the world director scales it by the shops
+  // that are open around the player, the weather and the time of day (SimDirector.js)
+  // for the debug console ( ` ): what the world is doing right now — the director's activity level, the works, the bins
+  worldInfo() {
+    const d = this.simD ? this.simD.info() : null; return { alive: this.worldAlive || null, director: d, works: this.construction ? this.construction.info() : null, street: this.streetSvc ? this.streetSvc.info() : null };
+  }
+  hourFactor() { const h = this.atmos.hour; if (this.simD) return this.simD.factor(); if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
   updatePlay(dt, warmOnly = false) { BUILDS.begin(); // 85th: one heavy object build per frame (core/FrameBudget.js)
     updateDoorClosers(dt); // doors people pulled shut behind them (DoorRig)
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
@@ -697,6 +714,10 @@ export class Game {
     if (this.cityEvents && !warmOnly) { const t0e = performance.now(); this.cityEvents.update(dt); const me = performance.now() - t0e; this.cityEvents.stats.lastMs = me; if (me > (this.cityEvents.stats.maxMs || 0)) this.cityEvents.stats.maxMs = me; if (me > 25) { const sp = this.cityEvents.stats.spikes || (this.cityEvents.stats.spikes = []); if (sp.length < 12) sp.push({ ms: Math.round(me), what: this.cityEvents.marks.join(',') || 'update' }); } } // 81st: city events (schedule, sites, people, sound)
     if (this.activities && !warmOnly && !this.indoor) { try { this.activities.update(dt); } catch (e) { console.warn('[activities]', e); } } // 92nd: fight nights / race meets
     if (!this.indoor && this.trains && this.world.fortStation !== false) { if (!this.station) this.station = new StationLife(this); this.station.update(dt, { focus, night: A.night, hour: A.hour, player: P }); } { const fs = this.world.landmarks && this.world.landmarks.anim.fortStation; if (fs && fs.live && this.trains) { fs.live(this.trains, A.hour, 1 / Settings.get('timeScale'), focus.x, focus.z); } } // live departure / arrival screens // Colombo Fort station: passengers, train riders, clerks, vendors, announcer (StationLife.js)
+    if (!this.indoor && !warmOnly && (this.construction || this.streetSvc || this.simD)) { // works, street services and the director that feeds them
+      const wctx = { hour: A.hour, day: A.day, rain: A.w.rain, night: A.night };
+      try { if (this.construction) this.construction.update(dt, focus, wctx); if (this.streetSvc) this.streetSvc.update(dt, focus, wctx); if (this.simD) this.simD.update(dt, wctx); } catch (e) { if (!this._errW) { console.warn('[world alive]', e); this._errW = 1; } }
+    }
     if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor && !warmOnly) this.bicycles.update(dt, Vehicle);
@@ -794,7 +815,7 @@ export class Game {
   }
   project(x, y, z) { const v = new THREE.Vector3(x, y, z).project(this.camera); if (v.z > 1) return null; return [(v.x * 0.5 + 0.5) * innerWidth, (-v.y * 0.5 + 0.5) * innerHeight]; }
   // ================================================================= settings
-  applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
+  applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); if (this.simD) this.simD.baseTraffic = this.traffic.max; /* the director scales the volume by the hour from this ceiling */ }
   applySettings(k) {
     if (k === 'cpuWorkers' || k === '*') setWorkerOverride(Settings.get('cpuWorkers')); // 93rd: live (the geometry pool grows / shrinks; 0 = the main-thread paths)
     if (k === 'cpuPanel' || k === '*') { if (Settings.get('cpuPanel')) (this.cpuPanel || (this.cpuPanel = new CpuPanel(this))).show(true); else if (this.cpuPanel) this.cpuPanel.show(false); }

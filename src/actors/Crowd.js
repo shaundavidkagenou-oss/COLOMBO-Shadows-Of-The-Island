@@ -15,6 +15,7 @@ import { npcHeadGeometry, npcHeadOpts, npcVariant } from './NpcHead.js';
 import { SpawnHistory, CoarseGrid } from '../core/SpawnHistory.js';
 import { offView, holdThisFrame } from '../gfx/ViewSkip.js';
 import { MindSystem, responseWeights, pickWeighted, reactDelay, feel, bond, EI, TI } from './Mind.js';
+import { BusinessDay, queueSlots } from '../world/Business.js';
 const HOLD_OK = new Set(['walk', 'toPoi', 'idle', 'waitCross', 'shop', 'shelter', 'lawn', 'busStop', 'bench', 'chat', 'watch', 'flee', 'cower', 'scene', 'door', 'gather']); // ambient states that may be posed at a lower rate while unseen
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
@@ -27,7 +28,8 @@ const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['t
 export class Crowd {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0; this.police = null;
-    this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
+    this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0, queues: 0, shut: 0 };
+    this.biz = new BusinessDay(1); this.hour = 12; this.day = 1; // the working day (Business.js): which shops are open, how busy, and where their queues stand
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
     this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings(); this.life = new StreetLife(this);
     // NPC minds: personality, emotions, memory, relationships, event bus (Mind.js); a car horn nearby frays nerves
@@ -71,7 +73,34 @@ export class Crowd {
     cand.sort((a, b) => a[0] - b[0]); for (const [, n] of cand.slice(0, 10)) if (!this.crossesRoad(n.x, n.z, q.x, q.z)) { q._node = n.id; break; }
     return q._node;
   }
-  poiCap(q) { return q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : q.type === 'bench' ? (q.seats || 1) : 1; }
+  // How many people a place holds. Served counters (shops, stalls, carts) hold a LINE: the length is what the pavement
+  // around the counter allows, capped by the trade's own queue length (Business.js), so a stall against a wall serves one
+  // person at a time and a wide corner shop four.
+  poiCap(q) { return q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : q.type === 'bench' ? (q.seats || 1) : q.type === 'shop' || q.type === 'vendor' ? this.queueFor(q).length : 1; }
+  queueFor(q) { if (q._qc) return q._qs; return queueSlots(q, this.collision, Math.max(1, this.biz.queueCap(q))); }
+  // take a place at the back of a served counter's line (false: the line is full and they go elsewhere)
+  queueJoin(q, p) {
+    if (!this.queueFor(q).length) return false; const line = q.qline || (q.qline = []); if (line.length >= q._qc) return false;
+    line.push(p); p.qslot = line.length - 1; this.stats.queues++; return true;
+  }
+  // the line moves up: everybody's slot index shifts, the person now at the counter is served, the rest step forward
+  queueRespace(q) {
+    const S = q._qs, line = q.qline; if (!S || !line) return;
+    for (let i = 0; i < line.length; i++) {
+      const o = line[i], was = o.qslot ?? i; o.qslot = i; const s = S[i]; if (!s) continue;
+      if (i > 0) { if (o.state === 'toPoi') o.target = { x: s.x, z: s.z }; else if (o.state === 'idle' && !o.sit && Math.hypot(o.x - s.x, o.z - s.z) > 0.2) o.slideTo = { x: s.x, z: s.z }; }
+      else if (was > 0) { // reached the counter: now they are served
+        o.timer = q.type === 'vendor' ? this.rng.range(5, 11) : this.rng.range(6, 14);
+        o.ch.anim.set(q.type === 'vendor' ? (q.cart ? 'talk' : 'browse') : this.rng.chance(0.6) ? 'browse' : 'look');
+        o.ch.face.talking = q.type === 'vendor'; this.stats.served = (this.stats.served || 0) + 1;
+      }
+    }
+  }
+  // release a claimed point of interest — always through here, so the occupancy count and the queue line stay consistent
+  leavePoi(p) {
+    const q = p.poi; if (!q) return; p.poi = null; q.used = Math.max(0, q.used - 1); p.qslot = null;
+    if (q.qline) { const i = q.qline.indexOf(p); if (i >= 0) { q.qline.splice(i, 1); this.queueRespace(q); } }
+  }
   // Where this person is going: an errand (shop, vendor, bus stop, bench, lawn, a chat, a building door) or a destination
   // further along the street that keeps their general heading. The whole walk is planned in advance (route()).
   chooseGoal(p) {
@@ -79,7 +108,10 @@ export class Crowd {
     if (p.heading === undefined) p.heading = r.range(-Math.PI, Math.PI);
     for (let k = 0; k < 6; k++) {
       let goal = null, poi = null;
-      if (!p.jog && r.chance(0.6)) { const pois = this.nearPOIs(here.x, here.z, 150).filter((q) => q.used < this.poiCap(q) && (q.type !== 'lawn' || !this.rain) && Math.hypot(q.x - here.x, q.z - here.z) > 6); if (pois.length) { const q = r.pick(pois); const nn = this.poiNode(q); if (nn !== null && this.comp[nn] === this.mainComp) { goal = nn; poi = q; } } }
+      if (!p.jog && r.chance(0.6)) {
+        const pois = this.nearPOIs(here.x, here.z, 150).filter((q) => q.used < this.poiCap(q) && (q.type !== 'lawn' || !this.rain) && Math.hypot(q.x - here.x, q.z - here.z) > 6 && this.errandOk(q));
+        if (pois.length) { const q = this.pickPoi(pois, r); if (q) { const nn = this.poiNode(q); if (nn !== null && this.comp[nn] === this.mainComp) { goal = nn; poi = q; } } }
+      }
       if (goal === null) { const hx = Math.sin(p.heading), hz = Math.cos(p.heading); let best = null, bs = -Infinity; const span = p.jog ? [90, 260] : [60, 220];
         for (let t = 0; t < 14; t++) { const a = p.heading + r.range(-1.2, 1.2), d = r.range(span[0], span[1]); const x = here.x + Math.sin(a) * d, z = here.z + Math.cos(a) * d; const n = this.nearestNode(x, z); if (!n || n.id === p.node) continue; const sc = ((n.x - here.x) * hx + (n.z - here.z) * hz) / (Math.hypot(n.x - here.x, n.z - here.z) || 1) + r.next() * 0.3; if (sc > bs) { bs = sc; best = n; } }
         if (best) goal = best.id; }
@@ -88,11 +120,41 @@ export class Crowd {
     }
     return false;
   }
+  // Is this an errand anybody would run at this hour? A shut shop is not (a few people still stop and peer in — the
+  // 'look' act — which is what a closed parade of shops actually looks like), and a counter whose line already reaches
+  // the kerb loses its pull, so the street spreads its people out instead of stacking them all at one stall.
+  errandOk(q) {
+    if (q.type !== 'shop' && q.type !== 'vendor') return true;
+    const line = q.qline ? q.qline.length : 0, cap = q._qc || 1;
+    if (line >= cap) return false;
+    return this.biz.isOpen(q) || this.rng.chance(0.07);
+  }
+  // weighted draw over a street's points of interest: open shops and busy trades pull harder than a quiet doorway
+  pickPoi(list, r) {
+    const w = this._pw || (this._pw = []); w.length = list.length; let tot = 0, last = null;
+    for (let i = 0; i < list.length; i++) {
+      const q = list[i]; let k;
+      if (q.type === 'shop' || q.type === 'vendor') {
+        if (this.biz.isOpen(q)) { const line = q.qline ? q.qline.length : 0; k = this.biz.weight(q) * Math.max(0.15, 1 - (line / Math.max(1, q._qc || 1)) * 0.7); }
+        else k = 0.04; // shut: only the odd window-shopper
+      } else k = 1;
+      w[i] = k; tot += k;
+    }
+    if (!tot) return null; let v = r.next() * tot;
+    for (let i = 0; i < list.length; i++) { if (!(w[i] > 0)) continue; last = list[i]; v -= w[i]; if (v <= 0) return list[i]; }
+    return last;
+  }
   nearestNode(x, z) { let best = null, bd = Infinity; const i = Math.floor(x / 40), j = Math.floor(z / 40); this.nodesNear(x, z, 40); for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) for (const n of this.nodeGrid.get(a * 1000 + b) || []) { const d = (n.x - x) ** 2 + (n.z - z) ** 2; if (d < bd) { bd = d; best = n; } } return best; }
   // arrived next to the point of interest the walk was planned for: claim a place there (or plan something else)
   beginPoi(p, q) {
     p.goalPoi = null; if (q.used >= this.poiCap(q) || (q.type === 'lawn' && this.rain)) return false;
+    if (q.type === 'shop' || q.type === 'vendor') { // shut while they were walking here: they look for something else (or peer in)
+      const open = this.biz.isOpen(q); if (!open && !this.rng.chance(0.25)) { this.stats.shut++; return false; }
+      if (this.queueFor(q).length > 1) { if (!this.queueJoin(q, p)) return false; }
+      else if (q.qline && q.qline.length) return false;
+    }
     q.used++; p.poi = q; p.target = { x: q.x + this.rng.range(-0.4, 0.4), z: q.z + this.rng.range(-0.4, 0.4) };
+    if (p.qslot !== undefined && p.qslot !== null && q._qs) { const s = q._qs[p.qslot] || q._qs[0]; if (p.qslot > 0) p.target = { x: s.x, z: s.z }; }
     if (q.type === 'bench') { // a real seat: one of the bench's places along its length, never a random spot in front of / inside the backrest
       const n = q.seats || 1; q.slots ||= []; let si = 0; while (si < n - 1 && q.slots[si] && q.slots[si].poi === q && q.slots[si] !== p) si++; q.slots[si] = p;
       const off = n > 1 ? (si - (n - 1) / 2) * 0.85 : 0, c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0);
@@ -201,7 +263,7 @@ export class Crowd {
     this.minds.attach(p); ch.crowdPed = p; this.peds.push(p); this.place(p); return p;
   }
   // hand a person over to another system (police arrest): no longer updated or despawned by the crowd, not disposed
-  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); this.minds.detach(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; if (p.gather && p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.gather = null; p.helpI = null; p.helpOf = null; p.homeCar = null; }
+  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); this.minds.detach(p); this.leavePoi(p); p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; if (p.gather && p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.gather = null; p.helpI = null; p.helpOf = null; p.homeCar = null; }
   remove(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.despawn(p); }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
@@ -268,8 +330,8 @@ export class Crowd {
     if (p.homeCar && !p.dead && p.state !== 'toCar') { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.talking = false; p.lookT = 0; p.state = 'toCar'; p.timer = 30; p.rt = 0; return; } // a driver out of their car after a crash goes back to it
     if (p.job && !p.dead) { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0; p.stuckN = 0; p.stuckT = 0; p.state = 'job'; p.job.resume(p); return; } // back to work
     const r = p.routine; p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0;
-    if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
-    else { if (r && r.poi) r.poi.used = Math.max(0, r.poi.used - 1); p.poi = null; this.returnToGraph(p); }
+    if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; const keepQ = p.qslot; p.poi = r.state === 'toPoi' ? r.poi : null; p.qslot = p.poi ? keepQ : null; if (r.poi && r.state !== 'toPoi') this.leavePoi(r); if (p.state === 'waitCross') p.timer = 0; }
+    else { if (r && r.poi) this.leavePoi(r); p.poi = null; p.qslot = null; this.returnToGraph(p); }
     p.stuckN = 0; p.stuckT = 0;
   }
   speak(p, cat, prio = 0, dur = 2.2) { const before = p.talkCd; this.say(p, cat, prio); if (p.talkCd !== before) { p.ch.face.talking = true; p.talkFor = Math.max(dur, p.voiceDur || 0); p.voiceDur = 0; } } // a recorded voice (Voices.js) keeps the mouth going as long as the clip
@@ -356,7 +418,7 @@ export class Crowd {
     this.alarm(p.x, p.z, 30, 3, p);
   }
   update(dt, focus, camDir, ctx) {
-    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
+    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour; this.biz.hour = this.hour; this.biz.day = ctx.day ?? this.biz.day; this.biz.rain = ctx.rain || 0;
     const player = ctx.player; this.camDir = camDir; this.focus = focus; this.playerArmed = !!ctx.armed; if (ctx.police !== undefined) this.police = ctx.police;
     this.life.update(dt, ctx);
     this.player = player; this.heroId = ctx.hero || this.heroId; { const pp = this._pp || (this._pp = { x: player.x, z: player.z }); this.playerSpeed = Math.hypot(player.x - pp.x, player.z - pp.z) / Math.max(dt, 1e-4); pp.x = player.x; pp.z = player.z; }
@@ -419,6 +481,7 @@ export class Crowd {
         }
         case 'idle': {
           p.timer -= dt; desired = 0; avoid = false; if (p.poi) p.yaw = dampAngle(p.yaw, p.poi.rot ?? p.yaw, 4, dt); if (p.benchRead) this.life.benchStep(p, dt);
+          if (p.qslot) { p.timer = Math.max(p.timer, 1); if (p.qslot === 0 && this.rng.chance(dt * 0.35)) { const a = p.poi.type === 'vendor' ? ['talk', 'browse', 'phone'] : ['browse', 'look', 'phone']; if (!p.ch.anim.action) p.ch.anim.set(a[Math.floor(this.rng.next() * a.length)]); } } // in the queue: only the person being served finishes their errand
           if (p.slideTo) { const dx = p.slideTo.x - p.x, dz = p.slideTo.z - p.z, l = Math.hypot(dx, dz), st = Math.min(l, dt * 0.9); if (l > 0.01) { p.x += dx / l * st; p.z += dz / l * st; } else p.slideTo = null; } // settle back onto the seat while sitting down
           if (p.lookAt) { p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 3, dt); }
           if (p.poi && p.poi.type === 'busStop' && this.rng.chance(dt * 0.01)) this.speak(p, 'bus');
@@ -429,7 +492,7 @@ export class Crowd {
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
           if (p.poi && p.poi.type === 'vendor' && p.poi.cart && lod < 3) routine(p, p.ch, dt, 'vendor', () => this.rng.next()); // a cart vendor serves, calls out, waits — not one frozen pose for two minutes
-          if (p.timer <= 0 && !p.benchRead) { p.lastEdge = null; const tmp = p.poi && p.poi.temp; if (p.poi && p.mind && (p.poi.type === 'shop' || p.poi.type === 'vendor')) feel(p.mind, EI.HAP, 0.12); /* errand done */ if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; p.chatWith = null; if (tmp) this.endReaction(p); else this.pickNext(p); } // an impromptu street chat (Mind.startChat) ends: the walk it interrupted resumes (no path re-plan)
+          if (p.timer <= 0 && !p.benchRead) { p.lastEdge = null; const tmp = p.poi && p.poi.temp; if (p.poi && p.mind && (p.poi.type === 'shop' || p.poi.type === 'vendor')) feel(p.mind, EI.HAP, 0.12); /* errand done */ this.leavePoi(p); p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; p.chatWith = null; if (tmp) this.endReaction(p); else this.pickNext(p); } // an impromptu street chat (Mind.startChat) ends: the walk it interrupted resumes (no path re-plan)
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
@@ -631,7 +694,7 @@ export class Crowd {
           p.stuckT = 0; p.stuckN = (p.stuckN || 0) + 1; const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
           if (p.stuckN === 1) { const sL = !this.collision.blocked(p.x + fz * 0.8, p.z - fx * 0.8, 0.25); p.sideDir = sL ? [fz, -fx] : [-fz, fx]; p.stuckSide = 0.8; }
           else if (p.stuckN === 2 && p.state === 'scene') { /* activity: next stage gives it up */ }
-          else if (p.stuckN === 2) { if (p.state === 'toPoi' && p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } this.returnToGraph(p, true); }
+          else if (p.stuckN === 2) { if (p.state === 'toPoi' && p.poi) this.leavePoi(p); this.returnToGraph(p, true); }
           else if (p.stuckN === 3) { if (p.state === 'scene' && p.scene && p.scene.kind === 'follow') p.stuckN = 0; else if (p.state === 'scene') { this.life.interrupt(p); p.state = 'walk'; this.returnToGraph(p); } else if (this.isRoutine(p.state)) { this.pickNext(p); } else this.endReaction(p); }
           else { const vis = this.visible(p); if (!vis && !p.keep) p.recycle = true; else { p.stuckN = 1; this.returnToGraph(p, true); } }
         }
@@ -664,8 +727,14 @@ export class Crowd {
   }
   visible(p) { const f = this.focus, c = this.camDir; const dx = p.x - f.x, dz = p.z - f.z, d = Math.hypot(dx, dz); if (d > 60) return false; if (!c) return true; return (dx * c.x + dz * c.z) / (d || 1) > 0.2 || d < 12; }
   startPoi(p) {
-    const q = p.poi; if (this.life.atPoi(p, q)) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); if (q.type === 'bench' || q.type === 'door') p.yaw = q.rot ?? p.yaw; /* others turn to face the counter smoothly (idle step damps the yaw) instead of snapping */
+    const q = p.poi; if (this.life.atPoi(p, q)) { this.leavePoi(p); return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); if (q.type === 'bench' || q.type === 'door') p.yaw = q.rot ?? p.yaw; /* others turn to face the counter smoothly (idle step damps the yaw) instead of snapping */
     const A = p.ch.anim;
+    if ((q.type === 'shop' || q.type === 'vendor') && p.qslot) { // not at the counter yet: stand in the line and wait their turn
+      p.timer = this.rng.range(4, 12); p.yaw = q.rot ?? p.yaw;
+      A.set(this.rng.weighted([['phone', 3], ['text', 3], ['look', 2], ['crossarms', 0.5], [null, 3]]));
+      return;
+    }
+    if (q.type === 'shop' && !this.biz.isOpen(q)) { A.set(this.rng.chance(0.55) ? 'look' : 'browse'); p.timer = this.rng.range(5, 11); return; } // shutter down: they peer in and move on
     switch (q.type) {
       case 'bench': A.set('sit'); p.sit = true; p.timer = this.rng.range(15, 45); if (p.seat) p.slideTo = p.seat; p.seat = null; break;
       case 'shop': A.set(this.rng.chance(0.6) ? 'browse' : 'look'); break;
@@ -802,7 +871,7 @@ export class Crowd {
     p.dead = true; this.minds.died(p); this.events.emit('npcDefeated', { kind: 'ped', p }); /* 64th: loot (world/Loot.js) — once per defeat (kill() returns early when already dead) */ Voices.say(p.sp, 'die', p.x, p.z, null); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
       this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0], legK: byCar ? 1.3 : 1.2, upK: byCar ? 0.75 : 0.7 }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
-    if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
+    if (p.ch.face.set) p.ch.face.set('blink', 1e9); this.leavePoi(p);
     if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
   }
   // the body lies BEHIND the feet (the mesh tips backwards about the ankles), so the collision circle at the feet alone let
@@ -902,7 +971,7 @@ export class Crowd {
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p, reaction === 'confront' ? 'dispute' : 'scuffle'); return p;
   }
-  despawn(p) { this.minds.detach(p); if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { this.minds.detach(p); if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; this.leavePoi(p); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;

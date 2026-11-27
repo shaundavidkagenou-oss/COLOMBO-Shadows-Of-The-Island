@@ -282,7 +282,7 @@ export class StreetLife {
     const cand = C.peds.filter((p) => ok(p) && Math.hypot(p.x - f.x, p.z - f.z) > 14 && Math.hypot(p.x - f.x, p.z - f.z) < 60 && Math.hypot(p.x - P.x, p.z - P.z) > 12);
     for (const a of cand) { const b = cand.find((o) => o !== a && Math.hypot(o.x - a.x, o.z - a.z) < 9 && Math.hypot(o.x - a.x, o.z - a.z) > 1.5 && !C.crossesRoad(a.x, a.z, o.x, o.z) && !C.collision.blocked((a.x + o.x) / 2, (a.z + o.z) / 2, 0.3)); if (!b) continue; // same pavement, nothing between them
       const F = { a, b, phase: 'confront', t: 0, x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, turn: 0, hitT: 0, called: false, callT: 5 + this.rng.next() * 4, alarmT: 0, unit: null, stopped: false, handed: false, ended: false, life: this, dur: 40 + this.rng.next() * 20 };
-      for (const [p, sd] of [[a, 0], [b, 1]]) { if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.state = 'scene'; p.scene = { kind: 'fight', F, side: sd }; p.act = null; p.ch.anim.set(null); p.keep = true; }
+      for (const [p, sd] of [[a, 0], [b, 1]]) { if (p.poi) this.C.leavePoi(p); /* through the crowd's own book-keeping: a queue slot is given up too, not just the poi */ p.state = 'scene'; p.scene = { kind: 'fight', F, side: sd }; p.act = null; p.ch.anim.set(null); p.keep = true; }
       this.fights.push(F); this.stats.fight++; this.C.speak(b, 'annoyed', 1, 2.2); return true; }
     return false;
   }

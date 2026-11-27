@@ -9,7 +9,7 @@
     "build": "vite build",
     "build:studio": "vite build --mode studio",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "test:smoke": "node tools/smoke-test.mjs && node tools/rail-test.mjs && node tools/police-test.mjs && node tools/tow-test.mjs && node tools/duty-test.mjs && node tools/park-test.mjs && node tools/knock-test.mjs && node tools/crowd-test.mjs && node tools/streetlife-test.mjs && node tools/routine-test.mjs",
+    "test:smoke": "node tools/smoke-test.mjs && node tools/rail-test.mjs && node tools/police-test.mjs && node tools/tow-test.mjs && node tools/duty-test.mjs && node tools/park-test.mjs && node tools/knock-test.mjs && node tools/crowd-test.mjs && node tools/business-test.mjs && node tools/construction-test.mjs && node tools/streetservices-test.mjs && node tools/streetlife-test.mjs && node tools/routine-test.mjs && node tools/sim-director-test.mjs",
     "test:paint": "node tools/paint-test.mjs",
     "test:seats": "node tools/seat-ik-test.mjs",
     "test:anim": "node tools/anim-test.mjs",
