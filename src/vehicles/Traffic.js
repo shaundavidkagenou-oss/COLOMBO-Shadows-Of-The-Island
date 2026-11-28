@@ -685,9 +685,19 @@ export class Traffic {
     if (sp > dec) { f.vx -= f.vx / sp * dec; f.vz -= f.vz / sp * dec; } else { f.vx = 0; f.vz = 0; }
     f.spin *= Math.exp(-2.6 * dt); if (Math.abs(f.spin) < 0.03) f.spin = 0;
     v.x += f.vx * dt; v.z += f.vz * dt; v.yaw += f.spin * dt; v.speed = 0; v.brake = true;
-    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; const [fx, fz] = v.forward(); v.impact(-vn, { nx: dx / dl, nz: dz / dl, t: (cx - v.x) * fx + (cz - v.z) * fz }); } } }
+    // Free-sliding AI cars can also shear roadside furniture; intact run railings remain solid below threshold.
+    if (VEH_HOOKS.breakProp && sp > 3.5) for (const c of this.collision.query(v.x - v.half - 1, v.z - v.half - 1, v.x + v.half + 1, v.z + v.half + 1)) {
+      if (!c.brk || !(c.h > 0.4 || c.brk.run?.h > 0.4)) continue;
+      if (Math.abs((c.x0 + c.x1) / 2 - v.x) > v.half + 0.5 || Math.abs((c.z0 + c.z1) / 2 - v.z) > v.half + 0.5) continue;
+      VEH_HOOKS.breakProp(v, c, { vx: f.vx, vz: f.vz, side: 1 });
+    }
+    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; const [fx, fz] = v.forward(); const hit = { nx: dx / dl, nz: dz / dl, t: (cx - v.x) * fx + (cz - v.z) * fz }; v.impact(-vn, hit); v.crashLaunch(-vn, hit); } } }
     for (const [cx, cz] of v.circles()) { const q = L.railPush(cx, cz, v.radius); if (!q) continue; const dx = q.x - cx, dz = q.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; } } // 89th: a car shoved / spun toward Beira Lake stops at its railing
-    v.y = L.groundY(v.x, v.z); v.sync(dt);
+    const gy = L.groundY(v.x, v.z);
+    if (v.air) { v.vy -= 9.81 * dt; v.y = (v.y || gy) + v.vy * dt; if (v.y <= gy) { const imp = -v.vy; v.y = gy; v.vy = 0; v.air = false; v.sus.hv += Math.min(2.5, imp * 0.4); if (imp > 8) { v.vy = Math.min(3, imp * 0.2); v.air = true; } } }
+    else v.y = gy;
+    v.crashT = Math.max(0, (v.crashT || 0) - dt); v.sync(dt);
+    if (v.air) { f.rest = 0; return; }
     if (Math.hypot(f.vx, f.vz) < 0.15 && f.spin === 0) f.rest += dt; else f.rest = 0;
     if (v.ai && v.ai.chase && f.rest > 0.45 + Math.min(1.5, f.sev * 0.1)) { v.free = null; v.speed = 0; return; } // a pursuing unit knocked aside: straight back into the chase
     if (f.rest < 1.2 + Math.min(5, f.sev * 0.35)) return;

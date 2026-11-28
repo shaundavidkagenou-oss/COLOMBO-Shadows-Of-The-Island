@@ -107,6 +107,12 @@ export function buildPropGeometries() { // 60th: every prop type draws with its 
   // pedestrian railing (yellow/black)
   { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); for (const x of [-1.5, 1.5]) p.box(x, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); p.box(0, 0.16, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); for (let k = 0; k < 8; k++) p.box(-1.17 + k * 0.334, 0.535, 0, 0.03, 0.76, 0.03, { col: C('#c9ab17') }); /* a 3 m section with a post at each end: sections join post to post; bottom rail + vertical bars make it read as the solid guard rail it is */
     GEO.railing = [part(p, MAT.pedRailing)]; }
+  // Compact street furniture and three-metre fence sections: static instances until the base shears.
+  { const p = new MeshBuilder(); p.cylinder(0, 0.38, 0, 0.11, 0.13, 0.76, 10, { col: C('#db2d24') }); p.cylinder(0, 0.77, 0, 0.14, 0.14, 0.09, 10, { col: C('#b62420') }); p.box(0, 0.46, 0, 0.48, 0.13, 0.17, { col: C('#df3930') }); GEO.hydrant = [part(p, MAT.paint)]; }
+  { const p = new MeshBuilder(); p.cylinder(0, 0.3, 0, 0.15, 0.23, 0.6, 8, { col: C('#f07924') }); p.box(0, 0.05, 0, 0.48, 0.1, 0.48, { col: C('#343434') }); GEO.cone = [part(p, MAT.paint)]; }
+  { const p = new MeshBuilder(); p.cylinder(0, 0.48, 0, 0.11, 0.13, 0.96, 8, { col: C('#f0be28') }); GEO.bollard = [part(p, MAT.paint)]; }
+  { const p = new MeshBuilder(); for (const x of [-1.45, 1.45]) p.box(x, 0.75, 0, 0.11, 1.5, 0.13, { col: C('#805438') }); for (let k = 0; k < 5; k++) p.box(0, 0.18 + k * 0.28, 0, 2.98, 0.13, 0.09, { col: C('#a5784e') }); GEO.woodFence = [part(p, MAT.bench)]; }
+  { const p = new MeshBuilder(); for (const x of [-1.45, 1.45]) p.box(x, 0.78, 0, 0.06, 1.56, 0.07, { col: C('#737b7c') }); for (const y of [0.2, 1.45]) p.box(0, y, 0, 2.98, 0.06, 0.06, { col: C('#8e9898') }); for (let k = 0; k < 16; k++) p.box(-1.4 + k * 0.185, 0.82, 0, 0.018, 1.2, 0.018, { col: C('#929d9e') }); GEO.chainFence = [part(p, MAT.pedRailing)]; }
   // gate
   { const p = new MeshBuilder(); p.box(-2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); p.box(2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); for (let k = 0; k < 14; k++) p.box(-1.8 + k * 0.28, 0.95, 0, 0.04, 1.7, 0.04, { col: C('#1d1d1d') }); p.box(0, 1.75, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') }); p.box(0, 0.25, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') });
     GEO.gate = [part(p, MAT.gate)]; }
@@ -144,7 +150,7 @@ const SIG_HEAD = { off: -0.12, ys: [3.18, 2.86, 2.54], z: 0.335 };
 // an unlit lens is not black: dark tinted glass over a dull reflector (red / amber / green)
 const SIG_OFF = [new THREE.Color(0.075, 0.018, 0.016), new THREE.Color(0.08, 0.05, 0.012), new THREE.Color(0.014, 0.06, 0.045)];
 
-const BREAKABLE = new Set(['lamp', 'lampHeritage', 'signal']);
+const BREAKABLE = new Set(['lamp', 'lampHeritage', 'signal', 'railing', 'woodFence', 'chainFence', 'hydrant', 'bollard', 'cone']);
 export function buildPropsForChunk(chunk) {
   const group = new THREE.Group(); const byType = new Map();
   for (const p of chunk.props) { if (!GEO[p.type]) continue; if (!byType.has(p.type)) byType.set(p.type, []); byType.get(p.type).push(p); if (p.type === 'pole' && p.transformer) { if (!byType.has('transformer')) byType.set('transformer', []); byType.get('transformer').push(p); } }

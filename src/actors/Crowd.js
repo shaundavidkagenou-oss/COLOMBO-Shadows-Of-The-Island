@@ -837,7 +837,7 @@ export class Crowd {
   koLimp(p) {
     const K = p.koRag; K.limp = true; const pw = K.pow, up = K.move === 'upper', hk = K.move === 'hook';
     if (K.car) { // legs swept ahead of the trunk (the bumper strikes below the knee), the upper body lags and folds onto the bonnet
-      const r = this.ragdolls.add(p.ch, { vel: [p.vx, p.airVy || 0.2, p.vz], legK: 1.3, upK: 0.75 }); r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y;
+      const r = this.ragdolls.add(p.ch, { vel: [p.vx, p.airVy || 0.2, p.vz], legK: 1.3, upK: 0.75 }); if (K.spin) { const H = r.part('head'), S = K.spin; r.impulse(-K.uz * S, 0.6 + S * 0.2, K.ux * S, H); r.impulse(K.uz * S * 0.6, 0, -K.ux * S * 0.6, r.part('anL')); } r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y;
       p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2); return; }
     // carried back by the blow at walking pace; the legs barely move (they buckle in place), the trunk takes it
     const r = this.ragdolls.add(p.ch, { vel: [K.ux * 1.1 * pw + p.vx * 0.4, up ? 0.6 : 0.05, K.uz * 1.1 * pw + p.vz * 0.4], legK: 0.25, upK: 1.25 });
@@ -862,7 +862,7 @@ export class Crowd {
     if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
     p.ch.mesh.castShadow = dist < 45;
     if (p.awaitMedic) { K.medic = true; return; } // the ambulance crew owns the body now (EMS.js)
-    if (K.ph || K.t < K.lim + K.lie || (!r.asleep && K.t < K.lim + K.lie + 3)) return;
+    if (K.car) { if (!r.asleep) K.restT = 0; else K.restT = (K.restT || 0) + dt; if (K.ph || (K.restT || 0) < K.lie) return; } else if (K.ph || K.t < K.lim + K.lie || (!r.asleep && K.t < K.lim + K.lie + 3)) return;
     const col = this.collision; K.ph = 'roll'; p.ch.face.set('concern', 8);
     const live = () => p.ch.rag === r && p.koRag === K && !p.dead && !p.awaitMedic;
     const getUp = () => { if (!live()) return; const fr = clearFrame(supineFrame(r), r, col); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
@@ -888,9 +888,9 @@ export class Crowd {
     // measured pedestrian throws: below ~20 km/h a person is shoved and falls (≈0.6 × car speed); above, the legs are swept,
     // the body wraps onto the bonnet and leaves at ≈0.75–0.85 × the car's speed with a low arc — not launched faster than the car
     const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(11, speed * (speed > 6 ? 0.8 : 0.6) + 0.4), lat = (0.12 + 0.22 * Math.abs(side)) * Math.min(5, speed * 0.3) * (side >= 0 ? 1 : -1);
-    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(2.6, speed * 0.12) : undefined; p.ch.face.set('fear', 4);
-    if (speed > 13) this.kill(p); /* ~47 km/h and faster: they do not get up */
-    else { const f = this.focus; if (this.ragdolls && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 60)) { p.koRag = { t: 0, lim: 0, ux: fx, uz: fz, move: 'car', pow: 1, dir: 1, lie: 3 + this.rng.next() * 3 + Math.min(3, speed * 0.25), limp: false, ph: null, car: true }; this.koLimp(p); } }
+    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(5.5, 1.4 + speed * 0.18) : undefined; p.ch.face.set('fear', 4);
+    if (speed > 28) this.kill(p); /* extreme hits remain lethal; normal high-speed collisions get a recoverable ragdoll */
+    else { const f = this.focus; if (this.ragdolls && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 60)) { p.koRag = { t: 0, lim: 0, ux: fx, uz: fz, move: 'car', pow: 1, dir: 1, lie: 2 + this.rng.next(), spin: speed > 7 ? Math.min(5, 0.6 + speed * 0.18) * (this.rng.chance(0.5) ? 1 : -1) : 0, limp: false, ph: null, car: true }; this.koLimp(p); } }
     this.events.emit('pedHit', p); this.speak(p, 'scared', 2); if (byPlayer) this.minds.playerAct(p, 'hitByCar'); this.alarm(p.x, p.z, 22, 1, p, 'accident', byPlayer);
   }
   // ---- player-initiated interactions

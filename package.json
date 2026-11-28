@@ -22,7 +22,8 @@
     "stream-test": "node tools/stream-test.mjs",
     "test:cpu": "node tools/cpu-workers-test.mjs",
     "test:cpu-stutter": "node tools/cpu-stutter.mjs",
-    "test:phase-ab": "node tools/phase-ab-test.mjs"
+    "test:phase-ab": "node tools/phase-ab-test.mjs",
+    "test:chaos": "node tools/chaos-physics-test.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",

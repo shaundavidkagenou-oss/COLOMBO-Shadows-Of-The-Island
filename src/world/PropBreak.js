@@ -25,7 +25,9 @@ const G = 9.81;
 const SPEC = {
   lamp: { len: 8.05, mass: 190, shear: 6800, base: 0.16, tip: 0.07, lie: 'flat' }, // galvanised steel post, LED arm
   lampHeritage: { len: 5.3, mass: 260, shear: 9000, base: 0.25, tip: 0.16, lie: 'along' }, // cast-iron park / heritage lantern post
-  signal: { len: 3.35, mass: 120, shear: 5000, base: 0.1, tip: 0.1, lie: 'heads' }, // signal pole with two heads
+  signal: { len: 3.35, mass: 120, shear: 5000, base: 0.1, tip: 0.1, lie: 'heads' },
+  railing: { shear: 4500 }, woodFence: { shear: 3200 }, chainFence: { shear: 5200 },
+  hydrant: { shear: 3500 }, bollard: { shear: 4500 }, cone: { shear: 350 }, // signal pole with two heads
 };
 const _m = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0), _q = new THREE.Quaternion(), _ax = new THREE.Vector3(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -35,14 +37,17 @@ export class PropBreak {
     this.g = game; this.down = []; this.group = new THREE.Group(); this.group.name = 'brokenProps'; game.scene.add(this.group);
     this.stubGeo = new THREE.CylinderGeometry(0.13, 0.15, 0.12, 8); this.stubGeo.translate(0, 0.06, 0);
     VEH_HOOKS.breakProp = (v, c, hit) => this.hit(v, c, hit);
-    this.stats = { broken: 0, repaired: 0 };
+    this.stats = { broken: 0, repaired: 0 }; this.debris = []; this.geysers = [];
+    this.shardGeo = new THREE.BoxGeometry(1, 1, 1); this.shardGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(this.shardGeo.attributes.position.count * 3).fill(0.75), 3)); this.waterGeo = new THREE.BufferGeometry();
+    this.waterPos = new Float32Array(96 * 3); this.waterGeo.setAttribute('position', new THREE.BufferAttribute(this.waterPos, 3));
+    this.water = new THREE.Points(this.waterGeo, new THREE.PointsMaterial({ color: 0x86d5ed, size: 0.11, transparent: true, opacity: 0.8, depthWrite: false })); this.water.frustumCulled = false; this.water.visible = false; this.group.add(this.water);
   }
   // called by Vehicle.step for a breakable pole in the car's path: returns the share of the car's speed it keeps, or 0 if the pole holds
   hit(v, c, hit) {
     const p = c.brk; if (!p || p._down) return 0; const S = SPEC[p.type]; if (!S) return 0;
     const m1 = (v.T && v.T.mass) || 1100; const sp = Math.hypot(hit.vx, hit.vz); if (m1 * sp < S.shear) return 0; // too slow / too light (a scooter at walking pace): the pole holds
-    const keep = Math.max(0.55, (m1 / (m1 + S.mass)) - S.shear / (m1 * sp) * 0.12); // momentum shared with the pole + the work of shearing its bolts
-    this.knock(p, c, hit.vx, hit.vz, hit.side, sp);
+    const keep = S.len ? Math.max(0.55, (m1 / (m1 + S.mass)) - S.shear / (m1 * sp) * 0.12) : 1; // furniture breaks cleanly without slowing the car // momentum shared with the pole + the work of shearing its bolts
+    if (S.len) this.knock(p, c, hit.vx, hit.vz, hit.side, sp); else this.shatter(p, c, hit.vx, hit.vz, sp);
     return keep;
   }
   knock(p, c, vx, vz, side, sp) {
@@ -67,6 +72,39 @@ export class PropBreak {
     const A = this.g.audio || Audio; if (A && A.ready && !ObjectAudio.poleDown(p.x, p.z, p.type)) { A.debrisHit(p.x, p.z, 1.2); if (A.bulletMetal) A.bulletMetal(p.x, p.z, true); } // 76th: Interactive objects → metal / glass recordings when supplied
     this.sparks(p.x, by + 0.3, p.z, p.type === 'signal' ? 8 : 12); // the cable in the base shorts out
     return d;
+  }
+  // Small props fracture into independent pieces. Shared box geometry/material, capped pool and distance repair.
+  shatter(p, c, vx, vz, sp) {
+    p._down = true; c._h = p.run ? 1.05 : c.h; c.h = 0; if (p.run) { p.run.h = 0; for (const q of p.run.parts) if (!q._down) q.col.h = 1.05; } this.hide(p, true); this.stats.broken++;
+    const fence = p.type === 'woodFence' || p.type === 'chainFence' || p.type === 'railing';
+    const n = fence ? 7 : 3, yaw = p.rot || 0, co = Math.cos(yaw), si = Math.sin(yaw);
+    const mat = GEO[p.type][0].mat;
+    const pieces = []; for (let i = 0; i < n; i++) {
+      const x = fence ? (i - (n - 1) / 2) * 0.42 : (i - 1) * 0.12;
+      const obj = new THREE.Mesh(this.shardGeo, mat); obj.scale.set(fence ? 0.13 : 0.18, fence ? 1.1 : 0.28, fence ? 0.09 : 0.18);
+      obj.position.set(p.x + x * co, L.surfaceY(p.x, p.z) + (fence ? 0.68 : 0.36), p.z - x * si);
+      obj.castShadow = true; this.group.add(obj);
+      pieces.push({ obj, vx: vx * (0.55 + i * 0.06) + co * (i - 3) * 0.7, vy: 2 + sp * 0.1 + (i % 3), vz: vz * (0.55 + i * 0.06) - si * (i - 3) * 0.7, spin: (i % 2 ? 1 : -1) * (2 + sp * 0.14), rest: false });
+    }
+    const d = { p, c, pieces, t: 0, x: p.x, z: p.z }; this.debris.push(d);
+    while (this.debris.length > 36) this.repairDebris(this.debris.shift());
+    if (p.type === 'hydrant') this.geysers.push(d);
+    if (p.type === 'railing' || p.type === 'chainFence' || p.type === 'bollard') this.sparks(p.x, L.LAND_Y + 0.5, p.z, 8);
+    return d;
+  }
+  repairDebris(d) { for (const b of d.pieces) this.group.remove(b.obj); d.c.h = d.c._h; d.p._down = false; if (d.p.run && d.p.run.parts.every((p) => !p._down)) { d.p.run.h = 1.05; for (const q of d.p.run.parts) q.col.h = 0; } this.hide(d.p, false); this.stats.repaired++; this.geysers = this.geysers.filter((g) => g !== d); }
+  stepDebris(dt, focus) {
+    for (let i = this.debris.length - 1; i >= 0; i--) { const d = this.debris[i]; d.t += dt;
+      if (d.t > 18 && focus && Math.hypot(d.x - focus.x, d.z - focus.z) > 160) { this.repairDebris(d); this.debris.splice(i, 1); continue; }
+      for (const b of d.pieces) { if (b.rest) continue; const o = b.obj; b.vy -= 9.81 * dt; o.position.x += b.vx * dt; o.position.y += b.vy * dt; o.position.z += b.vz * dt; o.rotation.x += b.spin * dt; o.rotation.z += b.spin * 0.6 * dt;
+        const ground = L.surfaceY(o.position.x, o.position.z) + 0.12;
+        if (o.position.y < ground) { o.position.y = ground; b.vy = Math.abs(b.vy) > 1 ? -b.vy * 0.28 : 0; b.vx *= 0.58; b.vz *= 0.58; b.spin *= 0.55; if (b.vy === 0 && Math.hypot(b.vx, b.vz) < 0.35) b.rest = true; } }
+    }
+    this.water.visible = this.geysers.some((g) => g.t <= 8); if (!this.water.visible) return;
+    let k = 0; for (const d of this.geysers) { if (d.t > 8 || k >= 96) continue; const n = Math.min(24, 96 - k); for (let j = 0; j < n; j++) {
+      const age = (d.t * 2 + j * 0.137) % 1.4, a = j * 2.39996, r = age * age * 0.95;
+      this.waterPos[k * 3] = d.x + Math.cos(a) * r; this.waterPos[k * 3 + 1] = L.LAND_Y + 0.5 + age * 6 - age * age * 3.5; this.waterPos[k * 3 + 2] = d.z + Math.sin(a) * r; k++; } }
+    this.waterGeo.setDrawRange(0, k); this.waterGeo.attributes.position.needsUpdate = true;
   }
   // how far the real parts reach below the shaft's axis once the pole lies flat (LED head, signal heads, base flange): the base
   // half sets how high the base rides, the far half how high the far end lies — so no part of the model ends up in the ground.
@@ -96,7 +134,8 @@ export class PropBreak {
   // tallest solid thing at (x, z) a falling pole can rest against (walls, trunks, other poles, shelters) — 0 if none
   obstacle(x, z, self) { const col = this.g.world.collision; let top = 0; for (const c of col.query(x - 0.05, z - 0.05, x + 0.05, z + 0.05)) { if (c === self || !(c.h > 0.6) || c.kind === 'deck' || c.kind === 'platform') continue; if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue; top = Math.max(top, (c.y0 || 0) + c.h); } return top; }
   update(dt, focus) {
-    if (!this.down.length) return; dt = Math.min(dt, 0.05);
+    dt = Math.min(dt, 0.05); if (this.debris.length) this.stepDebris(dt, focus);
+    if (!this.down.length) return;
     for (let k = this.down.length - 1; k >= 0; k--) { const d = this.down[k];
       if (focus && Math.hypot(d.x - focus.x, d.z - focus.z) > 230 && d.t > 20) { this.repair(d); this.down.splice(k, 1); continue; } // crews have been: back as it was
       d.t += dt; if (d.rest) continue;
@@ -129,7 +168,7 @@ export class PropBreak {
     d.root.position.set(d.x, d.by, d.z);
   }
   // forget fallen poles whose standing props are being rebuilt (MapEditor): remove the wreck without restoring the old instances
-  drop(test) { this.down = this.down.filter((d) => { if (!test(d)) return true; this.group.remove(d.root); this.group.remove(d.stub); if (d.c && d.c._h) d.c.h = d.c._h; return false; }); }
+  drop(test) { this.debris = this.debris.filter((d) => { if (!test(d)) return true; this.repairDebris(d); return false; }); this.down = this.down.filter((d) => { if (!test(d)) return true; this.group.remove(d.root); this.group.remove(d.stub); if (d.c && d.c._h) d.c.h = d.c._h; return false; }); }
     repair(d) { this.group.remove(d.root); this.group.remove(d.stub); d.c.h = d.c._h || 4; d.p._down = false; this.hide(d.p, false); this.stats.repaired++; }
   // debug / tests: knock down the nearest breakable pole to (x, z) as if hit at speed sp heading (vx, vz)
   debugKnock(x, z, sp = 14, yaw = 0) { const col = this.g.world.collision; let best = null, bd = 1e9; for (const c of col.query(x - 30, z - 30, x + 30, z + 30)) { if (!c.brk || c.brk._down || !(c.h > 0)) continue; const dd = Math.hypot((c.x0 + c.x1) / 2 - x, (c.z0 + c.z1) / 2 - z); if (dd < bd) { bd = dd; best = c; } } if (!best) return null; return this.knock(best.brk, best, Math.sin(yaw) * sp, Math.cos(yaw) * sp, 1, sp); }

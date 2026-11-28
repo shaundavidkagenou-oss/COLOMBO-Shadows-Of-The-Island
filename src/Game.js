@@ -213,7 +213,7 @@ export class Game {
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.post.onUpscaleFail = () => this.upscaleFailed(); this.post.setUpscale(this.sgsrK(), this.sgsrOpts()); /* 91st: Snapdragon Game Super Resolution (Settings → Graphics) */ this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
-    this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.player.game = this; this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     try { this.boats = new Boats(this); } catch (e) { console.error('boats', e); this.boats = null; } /* Fort Harbour Marina, the moored fleet, harbour police boats, your boats (boats/Boats.js) */
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.loot = new Loot(this); // 64th: cash / belongings / weapons dropped by defeated NPCs (world/Loot.js)
@@ -541,7 +541,7 @@ export class Game {
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
     const t0 = performance.now(); this.frameStep(dt); this.cpuMon.add(raw * 1000, performance.now() - t0); // 93rd: frame interval + main-thread time of this frame (sim + draw submission)
-    Input.endFrame();
+    if (!(this.mode === 'play' && this.hitstopUntil > performance.now())) Input.endFrame();
   }
   // one frame of simulation + drawing with a given timestep: the rAF loop above, and the trailer's MP4 export
   // (tools/trailer-export: fixed 1/fps steps, every frame captured) which drives it directly while the loop idles (noRender)
@@ -611,7 +611,7 @@ export class Game {
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
       else if (this.mode === 'play' && this.benchHook) this.benchHook(dt); // 91st: the in-game benchmark (Benchmark.js) flies the camera through the living city
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
-      else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
+      else if (this.mode === 'play' && !this.paused && !(this.hitstopUntil > performance.now())) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
       updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); this.instr.update(dt, this.player && this.player.vehicle); /* 84th: live dials for the player's vehicle */ /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));

@@ -43,7 +43,7 @@ export class Player {
     if (r.parent && r.parent !== this.scene) { r.parent.remove(r); this.scene.add(r); }
     this.entry = null; this.exiting = null; this.boat = null; this.climb = null; this.swim = null; this.diveIn = null; this.swimBreath = 1; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
     this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0; this.cover = null; this.breach = null;
-    this.shake = 0; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
+    this.shake = 0; this.crashShake = null; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
     if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
     r.visible = true; this.camHid = false; this.ch.mesh.visible = true; r.rotation.set(0, this.yaw, 0); r.scale.setScalar(1);
     A.standUp(); A.duck = 0; A.action = null; A.actionW = 0; A.prevAction = null; A.actionT = 0; A.actionDur = 0; A.fadeAct = null; A.fadeW = 0; A.fadeT = 0;
@@ -401,7 +401,7 @@ export class Player {
     if (c && Input.wasPressed('horn') && Audio.hornFree(v, true)) this.events.emit('horn', v); // one 2 s horn at a time (hammering the key no longer stacks horns)
     if (c && Input.wasPressed('lights')) { v.lights = !v.lights; this.nightLights = v.lights; }
     if (c && !v.T.pedal && Input.wasPressed('indL')) v.ind = v.ind === -1 ? 0 : -1; /* 76th: turn indicators — same key again cancels; they self-cancel after the turn (VehicleAudio) */ if (c && !v.T.pedal && Input.wasPressed('indR')) v.ind = v.ind === 1 ? 0 : 1;
-    if (v.lastImpact && performance.now() - v.lastImpact.t < 50) { this.shake = Math.min(1, v.lastImpact.v / 20); this.events.emit('crash', v.lastImpact.v); v.lastImpact = null; }
+    if (v.lastImpact && performance.now() - v.lastImpact.t < 50) { this.shake = Math.min(1, v.lastImpact.v / 30); if (v.lastImpact.v > 14) { const c = v.lastImpact.contact || {}; this.crashShake = { x: c.nx || 0, z: c.nz || 0, t: 0.2, strength: Math.min(0.18, v.lastImpact.v * 0.004) }; if (this.game && !this.game.benchHook) this.game.hitstopUntil = Math.max(this.game.hitstopUntil || 0, performance.now() + Math.min(50, 30 + v.lastImpact.v * 0.5)); } this.events.emit('crash', v.lastImpact.v); v.lastImpact = null; }
   }
   // first-person eye (between the eyes, from the head bone) and view direction, world space
   fpEyeLook(eye, look) { const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const s = this.ch.spec.height / 1.72; const yaw = this.camYaw + Math.PI;
@@ -472,6 +472,7 @@ export class Player {
       if (t2 < 1) { const d = this.camPos.distanceTo(tgt); this.camPos.lerpVectors(tgt, this.camPos, Math.max(0.04, t2 - 0.3 / Math.max(d, 0.5))); t = Math.min(t, t2); } }
     { const nr = t < 1 || this.indoor ? 0.08 : 0.25; if (cam.near !== nr) { cam.near = nr; cam.updateProjectionMatrix(); } } // pressed against a wall or indoors: a short near plane can't cut into the geometry
     cam.position.copy(this.camPos);
+    if (this.crashShake) { const q = this.crashShake; q.t -= dt; if (q.t > 0 && Settings.get('cameraShake')) { const k = q.strength * q.t / 0.2; cam.position.x += q.x * k; cam.position.z += q.z * k; cam.position.y += k * 0.35; } else this.crashShake = null; }
     { const wl = L.waterLevel(cam.position.x, cam.position.z); this.camUnder = wl != null && cam.position.y < wl - 0.05 && !L.bridgeWalkAt(cam.position.x, cam.position.z); }
     if (this.shake > 0 && Settings.get('cameraShake')) { cam.position.x += (Math.random() - 0.5) * this.shake * 0.3; cam.position.y += (Math.random() - 0.5) * this.shake * 0.3; this.shake = Math.max(0, this.shake - dt * 2.5); }
     cam.lookAt(tgt);

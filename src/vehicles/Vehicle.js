@@ -187,12 +187,12 @@ export class Vehicle {
     // water: block like a wall
     if (L.isWater(nx, nz) && !L.bridgeWalkAt(nx, nz) && !L.roadAt(nx, nz)) { nx = this.x; nz = this.z; this.impact(Math.abs(this.speed)); this.speed *= -0.2; }
     if (VEH_HOOKS.breakProp && Math.abs(this.speed) > 3.5 && !this.air) { // breakaway lamp posts / signal poles (PropBreak.js): hit hard enough they shear off their base instead of acting as a wall
-      const hw = T.wid / 2 + 0.04, hl = T.len / 2 + 0.04, ext = hl + 0.6; const cand = collision.query(Math.min(this.x, nx) - ext, Math.min(this.z, nz) - ext, Math.max(this.x, nx) + ext, Math.max(this.z, nz) + ext).filter((c) => c.brk && c.h > 0.4);
-      for (const c of cand) { const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2, cr = (c.x1 - c.x0) / 2; const ns = Math.max(1, Math.ceil(Math.hypot(nx - this.x, nz - this.z) / 0.25));
+      const hw = T.wid / 2 + 0.04, hl = T.len / 2 + 0.04, ext = hl + 0.6; const cand = collision.query(Math.min(this.x, nx) - ext, Math.min(this.z, nz) - ext, Math.max(this.x, nx) + ext, Math.max(this.z, nz) + ext).filter((c) => c.brk && (c.h > 0.4 || c.brk.run?.h > 0.4));
+      for (const c of cand) { const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2, hx = (c.x1 - c.x0) / 2, hz = (c.z1 - c.z0) / 2, cxr = Math.abs(rx) * hx + Math.abs(rz) * hz, czr = Math.abs(fx) * hx + Math.abs(fz) * hz; const ns = Math.max(1, Math.ceil(Math.hypot(nx - this.x, nz - this.z) / 0.25));
         for (let i = 1; i <= ns; i++) { const t = i / ns, px = this.x + (nx - this.x) * t, pz = this.z + (nz - this.z) * t, dx = cx - px, dz = cz - pz; const lx = dx * rx + dz * rz, lz = dx * fx + dz * fz;
-          if (Math.abs(lx) >= hw + cr || Math.abs(lz) >= hl + cr) continue;
+          if (Math.abs(lx) >= hw + cxr || Math.abs(lz) >= hl + czr) continue;
           const vx = fx * this.speed + rx * this.lat, vz = fz * this.speed + rz * this.lat; const keep = VEH_HOOKS.breakProp(this, c, { vx, vz, side: lx >= 0 ? 1 : -1 });
-          if (keep > 0) { const sv = Math.abs(this.speed); this.speed *= keep; this.lat *= keep; const sg = Math.sign(lz) || 1; this.impact(Math.max(4.5, sv * (1 - keep) * 2.2), { nx: -fx * sg, nz: -fz * sg, t: clamp(lz, -T.len / 2, T.len / 2) }); }
+          if (keep > 0 && keep < 1) { const sv = Math.abs(this.speed); this.speed *= keep; this.lat *= keep; const sg = Math.sign(lz) || 1; this.impact(Math.max(4.5, sv * (1 - keep) * 2.2), { nx: -fx * sg, nz: -fz * sg, t: clamp(lz, -T.len / 2, T.len / 2) }); }
           break; } } }
     { // swept nose: at racer speeds (74 m/s ≈ 2.5 m per 30 fps frame) a single jump could land past a thin wall / fence and be
       // pushed out the far side — sample the path and stop at the first contact so the impulse response below handles it
@@ -230,7 +230,7 @@ export class Vehicle {
         const px = hw + cr - Math.abs(lx), pz = hl + cr - Math.abs(lz); if (px <= 0 || pz <= 0) continue;
         let mx, mz, pen; if (px < pz) { pen = px; const sg = lx > 0 ? -1 : 1; mx = rx * sg; mz = rz * sg; } else { pen = pz; const sg = lz > 0 ? -1 : 1; mx = fx * sg; mz = fz * sg; }
         this.x += mx * pen; this.z += mz * pen; sx += mx * pen; sz += mz * pen; if (pen > best) { best = pen; bestT = clamp(lz, -hl, hl); bestC = c; } } }
-    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (bestC && VEH_HOOKS.objHit) VEH_HOOKS.objHit(this, bestC, Math.max(0, -vn), Math.abs(V[0] * nz_ - V[1] * nx_)); /* 76th: what it hit, for the impact / scrape sound (ObjectAudio) */ if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); else if (VEH_HOOKS.impact) { const vt = Math.abs(V[0] * nz_ - V[1] * nx_); if (vt > 2.5) VEH_HOOKS.impact(this, 0, { nx: nx_, nz: nz_, t: bestT, slide: vt, scrapeOnly: true }); } } // grinding along a wall: paint scraped off
+    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (bestC && VEH_HOOKS.objHit) VEH_HOOKS.objHit(this, bestC, Math.max(0, -vn), Math.abs(V[0] * nz_ - V[1] * nx_)); /* 76th: what it hit, for the impact / scrape sound (ObjectAudio) */ if (vn < 0) applyImpulse(nx_, nz_, -(1 + (Math.abs(vn) > 8 ? 0.48 : 0.18)) * vn, bestT, 0.35); else if (VEH_HOOKS.impact) { const vt = Math.abs(V[0] * nz_ - V[1] * nx_); if (vt > 2.5) VEH_HOOKS.impact(this, 0, { nx: nx_, nz: nz_, t: bestT, slide: vt, scrapeOnly: true }); } } // grinding along a wall: paint scraped off
     // other vehicles: relative velocity along the contact normal, impulse split by mass; the other car is shoved (leaves its lane, slides, spins)
     if (others) for (const o of others) {
       if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > (8 + (o.T ? o.T.len / 2 : 4)) ** 2) continue;
@@ -241,12 +241,12 @@ export class Vehicle {
       if (!o.immovable && o.parked && !o.free) { o.x -= nx_ * deep * (1 - ratio); o.z -= nz_ * deep * (1 - ratio); o.sync(0); }
       const ofw = o.forward ? o.forward() : [0, 0]; const Vo = o.free ? [o.free.vx, o.free.vz] : [ofw[0] * (o.speed || 0), ofw[1] * (o.speed || 0)];
       const vn = (V[0] - Vo[0]) * nx_ + (V[1] - Vo[1]) * nz_;
-      if (vn < 0) { const J = -(1 + 0.22) * vn / (1 / m1 + (o.immovable ? 0 : 1 / m2)); applyImpulse(nx_, nz_, J / m1, ta, 0.25);
-        if (!o.immovable && o.shove) { const dv2 = J / m2; const orx = ofw[1], orz = -ofw[0]; const I2 = o.T ? (o.T.len ** 2 + o.T.wid ** 2) / 12 : 2; o.shove(-nx_ * dv2, -nz_ * dv2, clamp(0.45 * dv2 * tb * (-nx_ * orx - nz_ * orz) / I2 * 0.25, -2.4, 2.4), this); }
+      if (vn < 0) { const J = -(1 + (-vn > 8 ? 0.46 : 0.22)) * vn / (1 / m1 + (o.immovable ? 0 : 1 / m2)); applyImpulse(nx_, nz_, J / m1, ta, 0.25);
+        if (!o.immovable && o.shove) { const dv2 = J / m2; if (o.crashLaunch) o.crashLaunch(dv2, { nx: -nx_, nz: -nz_, t: tb }); const orx = ofw[1], orz = -ofw[0]; const I2 = o.T ? (o.T.len ** 2 + o.T.wid ** 2) / 12 : 2; o.shove(-nx_ * dv2, -nz_ * dv2, clamp(0.45 * dv2 * tb * (-nx_ * orx - nz_ * orz) / I2 * 0.25, -2.4, 2.4), this); }
         if (VEH_HOOKS.impact && !o.isTrain) VEH_HOOKS.impact(o, -vn * 1.25 * (o.immovable ? 1 : m1 / (m1 + m2)) * 1.6, { nx: -nx_, nz: -nz_, t: tb, by: this }); } // the other car is dented where it was hit
       else if (o.bump) o.bump(0, 0, this);
     }
-    if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25, hit); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
+    if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25, hit); this.crashLaunch(maxJ, hit); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
     this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-(pit ? 0.9 : 3.2) * dt); /* tyres scrub the spin off */
     { // vertical: the body follows the road on its springs; when the road falls away faster than the car can follow (a kerb drop at
       // speed, a ramp crest, an edge) it flies — gravity, no traction — and lands on its suspension (compression ∝ landing speed)
@@ -259,14 +259,14 @@ export class Vehicle {
       if (this.air) { this.vy -= 9.81 * dt; this.groundY = gy0 + this.vy * dt; this.airT += dt; this.pv += 0.25 * dt; /* the nose slowly drops in a long fall */
         this.tPitch = damp(this.tPitch || 0, -Math.atan2(this.vy, Math.max(2, Math.abs(this.speed))) * (T.entry === 'bike' ? 0.8 : 0.45), 3, dt); // the body follows its flight path
         if (this.groundY <= gNow) { let vImp = -this.vy; if (ramp) { const fx2 = Math.sin(this.yaw), fz2 = Math.cos(this.yaw); const sl = (L.groundY(this.x + fx2 * 0.5, this.z + fz2 * 0.5) - gNow) / 0.5; vImp = Math.max(0, vImp + this.speed * sl); } /* a landing ramp's down-slope takes most of the hit */
-          this.groundY = gNow; this.air = false; this.vy = 0; this.gyv = 0; const S = this.sus; S.hv += Math.min(2.4, vImp * 0.42); this.pv += clamp(vImp * 0.05, 0, 0.6) * (Math.random() < 0.5 ? 1 : 0.6); /* springs take the landing; a nose / tail-first touchdown rocks the body */
+          this.groundY = gNow; this.air = false; this.vy = 0; this.gyv = 0; if (vImp > 8 && !ramp && !this.launch && this.crashT > 0) { this.air = true; this.vy = Math.min(3.8, vImp * 0.23); } const S = this.sus; S.hv += Math.min(2.4, vImp * 0.42); this.pv += clamp(vImp * 0.05, 0, 0.6) * (Math.random() < 0.5 ? 1 : 0.6); /* springs take the landing; a nose / tail-first touchdown rocks the body */
           if (vImp > (this.launch ? 7.5 : 5.5)) this.impact((vImp - (this.launch ? 2 : 0)) * 1.4, { nx: 0, nz: 0, t: 0, land: true }); this.landed = { v: vImp, t: performance.now(), x: this.x, z: this.z, launch: this.launch || null }; this.launch = null; } }
       else if (ramp || wasR) { this.groundY = gNow; this.gyv = this.gyv === undefined ? rate : this.gyv + (rate - this.gyv) * Math.min(1, dt * 30); }
       else { const prev = gy0; this.groundY = damp(gy0, gNow, 12, dt); this.gyv = dt > 0 ? (this.groundY - prev) / dt : 0; } }
     // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
     const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike'; if (twoWheel && Math.abs(this.speed) > 0.3) { this.stand = 0; this.leanK = 0; } // never ridden on the stand
     if (twoWheel) { this.pitch = damp(this.pitch, (this.tPitch || 0) + clamp(-acc * 0.004, -0.05, 0.05), 9, dt); this.roll = damp(this.roll, clamp(Math.atan2(latA, 9.81) * 0.85, -0.55, 0.55), 4, dt); } // cars: the spring chassis in sync()
-    this.y = this.groundY;
+    this.y = this.groundY; this.crashT = Math.max(0, (this.crashT || 0) - dt);
     this.sync(dt);
   }
   // push a walker's circle (radius r) out of this vehicle's body box (oriented rectangle); returns null if clear
@@ -282,9 +282,22 @@ export class Vehicle {
     else { const ex = hw - Math.abs(lx), ez = hl - Math.abs(lz); if (ex < ez) { nlx = Math.sign(lx || 1) * (hw + r); nlz = lz; } else { nlx = lx; nlz = Math.sign(lz || 1) * (hl + r); } } // centre inside: leave by the nearest side
     return { x: this.x + nlx * fz + nlz * fx, z: this.z - nlx * fx + nlz * fz };
   }
-  impact(v, contact = null) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } if (VEH_HOOKS.impact && v > 2.5) VEH_HOOKS.impact(this, v, contact); }
+  // Crash-only flight: normal steering is unchanged below the threshold. Limit lift and torque by mass and
+  // cap repeat hits while airborne so a wall cannot inject unbounded energy every frame.
+  crashLaunch(dv, contact) {
+    if (dv < 9 || this.T.rail || this.wrecked || this.T.entry === 'bike' || this.crashT > 0) return;
+    const k = Math.min(1, (dv - 9) / 22) * (this.T.mass > 3000 ? 0.48 : 1);
+    if (k < 0.04) return;
+    this.air = true; this.groundY = Math.max(this.y, L.groundY(this.x, this.z)) + 0.12;
+    this.vy = Math.max(this.vy, 2.5 + 5 * k); this.airT = 0; this.crashT = 0.38;
+    const side = contact ? contact.nx * Math.cos(this.yaw) - contact.nz * Math.sin(this.yaw) : 0;
+    this.pv += (contact && contact.t < 0 ? -1 : 1) * (1.1 + 3.5 * k);
+    this.rv += (Math.sign(side || this.id % 2 - 0.5)) * (1.2 + 4.8 * k);
+    this.sus.hv += 0.45 * k;
+  }
+  impact(v, contact = null) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now(), contact }; } if (VEH_HOOKS.impact && v > 2.5) VEH_HOOKS.impact(this, v, contact); }
   // impulse from a collision (AI / parked): leave the lane and slide freely until the energy is gone (Traffic.stepFree)
-  shove(dvx, dvz, dspin = 0, by = null) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (by && by.player && VEH_HOOKS.crash) VEH_HOOKS.crash(this, by, dv); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
+  shove(dvx, dvz, dspin = 0, by = null) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (by && by.player && VEH_HOOKS.crash) VEH_HOOKS.crash(this, by, dv); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); this.crashLaunch(dv, { nx: dvx / (dv || 1), nz: dvz / (dv || 1), t: 0 }); }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
   // Tyre contact (45th request: tyres sank into kerbs, pavements and ramps). The body used to be placed at the ground height under
   // its CENTRE with the wheels kept on a road plane through that point, so a car with two wheels up on a 15 cm kerb had those
@@ -321,6 +334,7 @@ export class Vehicle {
   chassis(dt) {
     if (this.wrecked || this.T.entry === 'bike' || this.T.rail) return; const F = CHASSIS.focus;
     if (F && (this.x - F.x) ** 2 + (this.z - F.z) ** 2 > CHASSIS.r * CHASSIS.r) { this.pitch = 0; this.roll = 0; this.pv = this.rv = 0; this._sp = this.speed; this._yaw = this.yaw; return; }
+    if (this.air && this.crashT > 0) { const h = Math.min(dt, 0.05); this.pitch += this.pv * h; this.roll += this.rv * h; this.pv *= Math.exp(-0.3 * h); this.rv *= Math.exp(-0.3 * h); return; }
     const T = this.T, sp = this.speed || 0, a = clamp((sp - (this._sp ?? sp)) / dt, -14, 14), yr = wrapAngle(this.yaw - (this._yaw ?? this.yaw)) / dt; this._sp = sp; this._yaw = this.yaw;
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), wb = T.len * 0.31, hw = T.wid * 0.42;
     void fx; void fz; void wb; void hw; // terrain pitch / roll: contact() (per-wheel ground samples) sets tPitch / tRoll just before this

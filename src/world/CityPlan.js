@@ -368,6 +368,21 @@ function genStreetProps(seg, rng) {
       prev = pole;
     }
   }
+  // Sparse service furniture beside the kerb; never populate an entrance or an active roadway.
+  if (seg.level >= 1) for (let t = 19; t < len - 8; t += 39) {
+    const side = hash2(seg.id, t) < 0.5 ? -1 : 1; const [x, z] = P(t, side, seg.hw + 0.55);
+    if (!ok(x, z)) continue; const type = hash2(seg.id, t + 1) < 0.5 ? 'hydrant' : 'bollard'; const p = addProp(type, x, z, 0);
+    plan.colliders.push((p.col = { x0: x - 0.17, x1: x + 0.17, z0: z - 0.17, z1: z + 0.17, h: 0.95, kind: 'pole', brk: p }));
+    if (hash2(seg.id, t + 2) < 0.32) { const [cx, cz] = P(t + 2, side, seg.hw + 0.55); if (ok(cx, cz)) { const q = addProp('cone', cx, cz); plan.colliders.push((q.col = { x0: cx - 0.2, x1: cx + 0.2, z0: cz - 0.2, z1: cz + 0.2, h: 0.6, kind: 'pole', brk: q })); } }
+  }
+  // Residential boundaries: discrete sections, each with its own collider and break threshold.
+  if (seg.level >= 2 && len > 35 && (d === 'havelock' || d === 'borella' || d === 'wellawatte')) {
+    const side = hash2(seg.id, 7) < 0.5 ? -1 : 1, off = seg.hw + seg.walk + 0.35;
+    for (let t = 15; t < len - 12; t += 9) { const [x, z] = P(t, side, off); if (!ok(x, z)) continue;
+      const type = d === 'borella' ? 'chainFence' : 'woodFence', p = addProp(type, x, z, horizontal ? 0 : Math.PI / 2);
+      plan.colliders.push((p.col = { x0: x - (horizontal ? 1.48 : 0.07), x1: x + (horizontal ? 1.48 : 0.07), z0: z - (horizontal ? 0.07 : 1.48), z1: z + (horizontal ? 0.07 : 1.48), h: 1.5, kind: 'fence', brk: p }));
+    }
+  }
   // roadside trees
   const treeD = { cinnamon: ['rain', 22], beira: ['rain', 26], gftowers: ['palm', 18], kollupitiya: ['mara', 40], bambalapitiya: ['mara', 44], havelock: ['mara', 36], borella: ['mara', 40], fort: ['mara', 50], lake: ['rain', 26] }[d];
   if (treeD && seg.level <= 2) {
@@ -400,9 +415,10 @@ function genStreetProps(seg, rng) {
       for (let t = 14; t <= len - 14 + 1e-6; t += 0.5) { const no = shut(t, side); if (!no && a === null) a = t; if (a !== null && (no || t + 0.5 > len - 14 + 1e-6)) { const e = no ? t - 0.5 : t; if (e - a >= 3) runs.push([a, e]); a = null; } }
       for (const [a0, a1] of runs) { let t = a0;
         while (a1 - t >= 3 - 1e-6) { const n = Math.min(8, Math.floor((a1 - t) / 3 + 1e-6)), e = t + n * 3;
-          for (let k = 0; k < n; k++) { const [x, z] = P(t + 1.5 + k * 3, side, off); addProp('railing', x, z, rot, {}); }
+          const run = { parts: [], x0: 0, x1: 0, z0: 0, z1: 0, h: 1.05, kind: 'railing' };
+          for (let k = 0; k < n; k++) { const [x, z] = P(t + 1.5 + k * 3, side, off); const p = addProp('railing', x, z, rot, {}); p.run = run; run.parts.push(p); plan.colliders.push((p.col = { x0: x - (horizontal ? 1.5 : 0.07), x1: x + (horizontal ? 1.5 : 0.07), z0: z - (horizontal ? 0.07 : 1.5), z1: z + (horizontal ? 0.07 : 1.5), h: 0, kind: 'breakRail', brk: p })); }
           const [xa, za] = P(t, side, off), [xb, zb] = P(e, side, off);
-          plan.colliders.push({ x0: Math.min(xa, xb) - 0.07, x1: Math.max(xa, xb) + 0.07, z0: Math.min(za, zb) - 0.07, z1: Math.max(za, zb) + 0.07, h: 1.05, kind: 'railing' });
+          Object.assign(run, { x0: Math.min(xa, xb) - 0.07, x1: Math.max(xa, xb) + 0.07, z0: Math.min(za, zb) - 0.07, z1: Math.max(za, zb) + 0.07 }); plan.colliders.push(run);
           t = e + 2.4; } } }
   }
   // parking spots on local streets
