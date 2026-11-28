@@ -10,7 +10,7 @@ const { Traffic, evalPiece } = await import('../src/vehicles/Traffic.js');
 const { Vehicle } = await import('../src/vehicles/Vehicle.js');
 let pass = 0, fail = 0; const ok = (c, msg) => { if (c) pass++; else { fail++; console.log('FAIL', msg); } };
 const events = { emit() {}, on() {} };
-const stub = { blocked: () => false, resolveCircle: (x, z) => ({ x, z, hit: false }) };
+const stub = { blocked: () => false, groundAt: () => 0, resolveCircle: (x, z) => ({ x, z, hit: false }) };
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // body-frame sideways speed and on-the-spot yaw rate of every lane-driven car, worst case over a run

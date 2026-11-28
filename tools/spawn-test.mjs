@@ -11,6 +11,7 @@
 //     a parked vehicle there and the driver gets out calmly (handed to the crowd); the spot keeps that vehicle for the day.
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
+import { BUILDS } from '../src/core/FrameBudget.js';
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 { const { MAT } = await import('../src/gfx/Materials.js'); for (const k of ['paint', 'metal', 'concrete', 'road', 'ballast']) MAT[k] ??= new THREE.MeshStandardMaterial({ vertexColors: true }); }
 const L = await import('../src/world/Layout.js');
@@ -22,7 +23,7 @@ const { updateDoorClosers } = await import('../src/vehicles/DoorRig.js');
 const V = !!process.env.V;
 // game clock for the per-frame build budgets (Traffic throttles first-time model builds by performance.now(): the test runs
 // many times faster than real time, so give it the clock of a 60 fps game instead of the wall clock)
-let CLOCK = 0; performance.now = () => CLOCK; const tick = (dt) => { CLOCK += dt * 1000; };
+let CLOCK = 0; performance.now = () => CLOCK; const tick = (dt) => { CLOCK += dt * 1000; BUILDS.begin(); };
 let pass = 0, fail = 0; const fails = []; const keys = new Set();
 const ok = (c, m) => { if (c) pass++; else { fail++; const k = m.replace(/-?[0-9.]+/g, '#'); if (!keys.has(k) && fails.length < 40) { keys.add(k); fails.push(m); } } };
 const collision = { groundAt: (x, z) => L.groundY(x, z), resolveCircle: (x, z) => ({ x, z, hit: false }), blocked: () => false, raycast: () => 1, query: () => [] };
@@ -89,7 +90,7 @@ const seenBy = (f, c, x, z) => { const dx = x - f.x, dz = z - f.z, d = Math.hypo
   const pickN = Math.min(16, cases.length); const res = []; let parkedOK = 0;
   for (let ci = 0; ci < pickN; ci++) {
     const c = cases[Math.floor((ci * cases.length) / pickN)]; const type = types[ci % types.length];
-    const T = new Traffic(new THREE.Scene(), collision, events); T.max = 0; const adopted = []; T.crowd = { adopt: (ch, x, z, yaw, why) => adopted.push({ ch, x, z, why }) };
+    const T = new Traffic(new THREE.Scene(), collision, events); T.max = 0; const adopted = []; T.crowd = { adopt: (ch, x, z, yaw, why) => { const ped = { ch, x, z, yaw, why }; adopted.push(ped); return ped; } };
     T.gameH = 24 * 3 + 11; const today = 3;
     // every spot on this kerb is free today; a parked car on the spot BEYOND the target and one 15 m behind the kerb gap (for the body checks)
     const [al0, target] = c.spots[0]; for (const [, p] of c.spots) T.spots = T.spots || new Map(); for (const p of plan.parking) if (p.seg === c.seg.id) T.spots.set(p, { day: today, occ: false, until: -1 });

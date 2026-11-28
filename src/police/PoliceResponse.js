@@ -851,7 +851,17 @@ export class PoliceResponse {
     o.losT = (o.losT || 0) - dt;
     if (o.losT <= 0) { o.losT = 0.3 + Math.random() * 0.1; o.direct = d0 < 0.6 || N.lineClear(o.x, o.z, tx, tz, N.nearCars(Math.min(o.x, tx) - 3, Math.min(o.z, tz) - 3, Math.max(o.x, tx) + 3, Math.max(o.z, tz) + 3)); if (o.direct) N.stats.direct++; }
     if (!o.direct) {
-      const P = o.path; const stale = !P || Math.hypot(P.gx - tx, P.gz - tz) > 1.5 || this.t - P.t > (P.reached ? 2 : 4) || (o.blockedT || 0) > 0.6;
+      const P = o.path;
+      // Once the nearest reachable point is occupied, don't pick a different equally-close
+      // A* endpoint every few seconds. That made guards pace and spin beside a sealed building.
+      // A moving suspect or a newly clear straight line still releases the hold.
+      if (o.navHold && P && !P.reached && Math.hypot(P.gx - tx, P.gz - tz) <= 1.5) {
+        const step = Math.min(0.04, d0); const nx = o.x + (tx - o.x) / d0 * step, nz = o.z + (tz - o.z) / d0 * step;
+        if (!col.blocked(nx, nz, 0.28)) { o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); }
+        o.curSp = 0; o.yaw += angDiff(Math.atan2(tx - o.x, tz - o.z), o.yaw) * Math.min(1, dt * 5);
+        this.placeOfficer(o); return 0;
+      }
+      const stale = !P || Math.hypot(P.gx - tx, P.gz - tz) > 1.5 || this.t - P.t > (P.reached ? 2 : 4) || (o.blockedT || 0) > 0.6;
       if (stale && this.navT !== this.t && (!P || this.t - (o.navAt ?? -9) >= THINK.officer)) { this.navT = this.t; o.navAt = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; this.stats.footPlans = (this.stats.footPlans || 0) + 1; } // at most one search per frame for the whole force (no frame spikes), and (66th) one per officer per THINK.officer s: a moving goal no longer re-plans every frame
       const Q = o.path || { pts: [{ x: tx, z: tz }], i: 0, reached: true, ex: tx, ez: tz }; while (Q.i < Q.pts.length - 1 && Math.hypot(Q.pts[Q.i].x - o.x, Q.pts[Q.i].z - o.z) < (Q.pts[Q.i].vault ? 0.45 : 0.5)) { const w = Q.pts[Q.i]; if (w.vault) { this.startVault(o, w); Q.i++; return 0; } Q.i++; }
       const w = Q.pts[Math.min(Q.i, Q.pts.length - 1)]; if (w) { wx = w.x; wz = w.z; }
