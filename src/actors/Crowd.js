@@ -24,9 +24,12 @@ import { Voices } from '../audio/Voices.js';
 const SEV_KIND = ['panic', 'scuffle', 'gunshot', 'assault']; // alarm severity → kind of event, for callers that do not name one
 const GATHER_ACTS = [['crossarms', 3], ['look', 2], ['hips', 1.5], ['photo', 1.5], ['phone', 1.2], ['point', 0.6], [null, 1]];
 const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['talk', 1], ['dance', 0.35], ['wave', 0.6], ['clap', 0.25], [null, 4]];
+const EXOTIC_CARS = new Set(['praetor', 'raiden', 'vanta', 'kaizan', 'varuna', 'warden']);
 export class Crowd {
   constructor(scene, collision, events) {
-    this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0; this.police = null;
+    this.scene = scene; this.group = new THREE.Group(); this.group.name = 'crowd'; scene.add(this.group);
+    this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.envRng = new RNG(99173); this.max = 70; this.t = 0; this.police = null;
+    this.viralUntil = 0; this.viralDistrict = null; this._wasRain = false;
     this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
     this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings(); this.life = new StreetLife(this);
@@ -192,8 +195,8 @@ export class Crowd {
     return fd;
   }
   makePed(sp, x, z, nodeId) {
-    const n = L.pedNodes[nodeId]; const ch = new Character(sp); this.scene.add(ch.root);
-    const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined }; /* (Mind.js fields declared up front: one object shape for every pedestrian keeps the per-frame loop's property access monomorphic) */
+    const n = L.pedNodes[nodeId]; const ch = new Character(sp); this.group.add(ch.root);
+    const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, errandT: 0, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, social: null, filmTarget: null, filmKind: null, filmPlayer: false, filmProg: 0, filmSent: false, clique: null, envCd: 0, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined }; /* (Mind.js fields declared up front: one object shape for every pedestrian keeps the per-frame loop's property access monomorphic) */
     if (this.collision.blocked(p.x, p.z, 0.3) || L.roadAt(p.x, p.z)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
     // runners: early morning and late afternoon along the roads and the park (Galle Face, Viharamahadevi)
     const h = this.hour ?? 12, jogK = (h >= 5 && h < 9) || (h >= 16 && h < 19) ? 0.09 : h >= 9 && h < 22 ? 0.015 : 0;
@@ -265,7 +268,7 @@ export class Crowd {
     if (!sit) return; const d = Voices.say(p.sp, sit, p.x, p.z, p); if (d) { p.ch.face.talking = true; p.talkFor = Math.max(p.talkFor || 0, d); }
   }
   endReaction(p) {
-    if (p.homeCar && !p.dead && p.state !== 'toCar') { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.talking = false; p.lookT = 0; p.state = 'toCar'; p.timer = 30; p.rt = 0; return; } // a driver out of their car after a crash goes back to it
+    if (p.homeCar && !(p.errandT > 0) && !p.dead && p.state !== 'toCar') { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.talking = false; p.lookT = 0; p.state = 'toCar'; p.timer = 45; p.rt = 0; return; } // a driver out of their car after a crash or finished errand goes back to it
     if (p.job && !p.dead) { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0; p.stuckN = 0; p.stuckT = 0; p.state = 'job'; p.job.resume(p); return; } // back to work
     const r = p.routine; p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0;
     if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
@@ -290,11 +293,12 @@ export class Crowd {
     if (w.sev === 0) return; // just a glance (handled where it was queued)
     const r = this.rng; const awayX = p.x - w.x, awayZ = p.z - w.z; const dd = Math.hypot(awayX, awayZ) || 1; const kind = w.kind || (w.sev >= 2 ? 'gunshot' : 'scuffle');
     if (w.sev === 1) {
-      if (!this.isRoutine(p.state)) return;
+      if (!this.isRoutine(p.state) && !(p.state === 'scene' && p.scene && p.scene.kind === 'cliqueFollow')) return;
       const k = pickWeighted(responseWeights(p.mind, 1, w.d, kind, p.sp, this._rw), r.next());
       p.ch.face.set(r.chance(0.5) ? 'surprise' : 'concern', 1.8);
       if (k === 'look') { p.lookT = 1.5 + r.next() * 2; p.lookAtPt = { x: w.x, z: w.z }; }
-      else if (k === 'watch' || k === 'film') { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); if (k === 'film') p.ch.anim.set('photo'); else if (r.chance(0.3)) this.speak(p, kind === 'accident' || kind === 'crash' ? 'accident' : 'witness'); p.ch.face.mood = 'concern'; }
+      else if (k === 'film') { this.startFilm(p, w.src || { x: w.x, z: w.z }, kind, !!w.byPlayer); }
+      else if (k === 'watch') { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); if (r.chance(0.3)) this.speak(p, kind === 'accident' || kind === 'crash' ? 'accident' : 'witness'); p.ch.face.mood = 'concern'; }
       else if (k === 'comment') { p.lookT = 2; p.lookAtPt = { x: w.x, z: w.z }; this.speak(p, kind === 'accident' || kind === 'crash' ? 'accident' : kind === 'siren' ? 'siren' : 'witness'); }
       else if (k === 'gather') this.startGather(p, w);
       else if (k === 'help') this.startHelp(p, w);
@@ -304,7 +308,7 @@ export class Crowd {
       return;
     }
     // gunfire / violence
-    if (p.state === 'cower' || p.state === 'flee' || p.state === 'hide') { p.timer = Math.max(p.timer, 3); return; }
+    if (p.state === 'cower' || p.state === 'flee' || p.state === 'hide' || p.state === 'film') { p.timer = Math.max(p.timer, 3); return; }
     if (p.state === 'gather' && p.gather && p.gather.I) { p.gather.I.n = Math.max(0, p.gather.I.n - 1); p.gather = null; } // the crowd breaks up
     if (p.state === 'help' && p.helpI) { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; }
     const k = pickWeighted(responseWeights(p.mind, w.sev, w.d, kind, p.sp, this._rw), r.next());
@@ -314,7 +318,25 @@ export class Crowd {
     else if (k === 'hide') this.startHide(p, w);
     else if (k === 'freeze') { this.react(p, 'watch', 0.8 + r.next() * 1.2, { lookAt: { x: w.x, z: w.z }, after: 'flee' }); p.ch.face.set('surprise', 1.5); }
     else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8), repPlayer: !(w.src && w.src.contractKill) }); } // a hired long-range shot (Assassin.js) is reported, but nothing ties it to the player
-    else { this.react(p, 'watch', 3, { lookAt: { x: w.x, z: w.z } }); p.ch.anim.set('photo'); }
+    else { this.startFilm(p, w.src || { x: w.x, z: w.z }, kind, !!(w.byPlayer || !(w.src && w.src.contractKill))); }
+  }
+  startFilm(p, target, kind = 'fight', playerInvolved = false) {
+    if (!p || p.dead || p.state === 'down') return false;
+    const active = this.peds.filter((q) => q.state === 'film').length;
+    if (active >= 3) { this.react(p, 'watch', 4 + this.rng.next() * 4, { lookAt: { x: target.x, z: target.z } }); p.ch.anim.set('photo'); return false; }
+    this.react(p, 'film', 10 + this.rng.next() * 4, { filmTarget: target, filmKind: kind, filmPlayer: playerInvolved, filmProg: 0, filmSent: false });
+    p.ch.anim.set('photo'); p.ch.face.set('surprise', 3); p.ch.face.mood = 'concern';
+    if (this.rng.chance(0.65)) this.speak(p, 'filming', 1, 2.6);
+    this.stats.filmed = (this.stats.filmed || 0) + 1;
+    return true;
+  }
+  activeFilmerNear(x, z, maxD = 24) {
+    let best = null, bd = maxD * maxD;
+    for (const p of this.peds) {
+      if (p.state !== 'film' || !p.filmPlayer || p.filmSent) continue;
+      const d2 = (p.x - x) ** 2 + (p.z - z) ** 2; if (d2 < bd) { bd = d2; best = p; }
+    }
+    return best;
   }
   // ---- crowd behaviour around an incident (Mind.js incidents): onlookers spread round it at their own distance
   startGather(p, w) {
@@ -356,7 +378,9 @@ export class Crowd {
     this.alarm(p.x, p.z, 30, 3, p);
   }
   update(dt, focus, camDir, ctx) {
-    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
+    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles;
+    const prevRain = this._wasRain; this.rain = ctx.rain > 0.4; this._wasRain = this.rain; const rainJustStarted = !prevRain && this.rain;
+    this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
     const player = ctx.player; this.camDir = camDir; this.focus = focus; this.playerArmed = !!ctx.armed; if (ctx.police !== undefined) this.police = ctx.police;
     this.life.update(dt, ctx);
     this.player = player; this.heroId = ctx.hero || this.heroId; { const pp = this._pp || (this._pp = { x: player.x, z: player.z }); this.playerSpeed = Math.hypot(player.x - pp.x, player.z - pp.z) / Math.max(dt, 1e-4); pp.x = player.x; pp.z = player.z; }
@@ -365,6 +389,7 @@ export class Crowd {
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0) + (this.extraEv || 0); // extraEv (81st): half of the people at a city event are on top of the street crowd (CityEvents.js); extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
+    if (BUILDS.frames === 0) BUILDS.left = 1; // standalone simulation harnesses that do not run Game.updatePlay
     let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0 && BUILDS.can(this.peds.length < want * 0.5)) this.spawn(focus, camDir, this.peds.length < want * 0.5);
     // neighbour grid (2 m cells)
     /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */
@@ -374,8 +399,16 @@ export class Crowd {
     // non-crowd people on foot (player, police, HQ staff, mission & cutscene actors): steer around them and never overlap
     const fixed = (ctx.bodies || []).filter((b) => !b.ped && Math.abs(b.x - focus.x) < 90 && Math.abs(b.z - focus.z) < 90);
     const allB = ctx.bodies || [];
-    // nearby vehicles (incl. parked) as obstacles
-    const vnear = []; for (const v of this.vehicles || []) if (Math.abs(v.x - focus.x) < 80 && Math.abs(v.z - focus.z) < 80) vnear.push(v); if (pv) vnear.push(pv);
+    // nearby vehicles (incl. parked) indexed into a 10 m spatial hash so pedestrians only inspect adjacent cells instead of O(N×M)
+    const vgrid = this._vgrid || (this._vgrid = new Map()); if (this.frame % 600 === 0) vgrid.clear(); else for (const a of vgrid.values()) a.length = 0;
+    const addV = (v) => {
+      const r = 2 + (v.T ? v.T.len / 2 : 5);
+      const i0 = Math.floor((v.x - r) / 10), i1 = Math.floor((v.x + r) / 10), j0 = Math.floor((v.z - r) / 10), j1 = Math.floor((v.z + r) / 10);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = i * 10000 + j; let a = vgrid.get(k); if (!a) vgrid.set(k, (a = [])); a.push(v); }
+    };
+    const vseen = this._vseen || (this._vseen = new Set());
+    for (const v of this.vehicles || []) if (Math.abs(v.x - focus.x) < 80 && Math.abs(v.z - focus.z) < 80) addV(v);
+    if (pv && !(this.vehicles && this.vehicles.includes(pv))) addV(pv);
     for (const p of this.peds) {
       if (p.gather && p.state !== 'gather') { if (p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); p.gather = null; } /* knocked down / pulled into a fight / arrested straight out of a crowd of onlookers (state set without react()): free the slot */
       if (p.helpI && p.state !== 'help') { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; }
@@ -444,9 +477,25 @@ export class Crowd {
           if (p.timer <= 0) { if (this.rng.chance(0.25)) this.speak(p, 'recover'); this.endReaction(p); } break; }
         case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower' && p.ch.anim.action !== 'handsup') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
         case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'wary' && p.lookAt) { p.after = null; p.state = 'recover'; p.timer = 4 + this.rng.next() * 4; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.9); p.ch.anim.set(null); p.ch.face.mood = 'concern'; } else if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
-        case 'report': { // move a little away, then phone the police
-          p.timer -= dt; if (p.rt < 2.2) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); if (p.repPlayer !== false) this.events.emit('pedReport', { x: p.x, z: p.z }); p.repPlayer = undefined; } }
+        case 'report': { // move a little away, then phone the police (faster dial if the suspect is already viral on ColomboLive in this district)
+          const dialDelay = this.viralUntil > this.t && this.viralDistrict === L.districtIdAt(p.x, p.z) ? 1.25 : 2.2;
+          p.timer -= dt; if (p.rt < dialDelay) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); if (p.repPlayer !== false) this.events.emit('pedReport', { x: p.x, z: p.z }); p.repPlayer = undefined; } }
           if (p.timer <= 0) { p.repPlayer = undefined; this.endReaction(p); } break; }
+        case 'film': { // witness holds up smartphone ('photo' pose + phone prop) to record an incident for ColomboLive (~5 s upload), then lingers watching
+          p.timer -= dt; const T = p.filmTarget || player; const fx2 = T.x - p.x, fz2 = T.z - p.z, fd2 = Math.hypot(fx2, fz2) || 1;
+          p.yaw = dampAngle(p.yaw, Math.atan2(fx2, fz2), 6, dt);
+          if (fd2 < 2.2) { tx = p.x - fx2 / fd2 * 2.5; tz = p.z - fz2 / fd2 * 2.5; desired = 1.4; accel = 4; } else { desired = 0; avoid = false; }
+          if (p.ch.anim.action !== 'photo') p.ch.anim.set('photo');
+          p.filmProg = (p.filmProg || 0) + dt;
+          if (!p.filmSent && p.filmProg >= 5.0) {
+            p.filmSent = true;
+            const distId = L.districtIdAt(p.x, p.z);
+            if (p.filmPlayer) { this.viralDistrict = distId; this.viralUntil = this.t + 180; }
+            this.events.emit('socialPost', { kind: p.filmKind || 'fight', x: p.x, z: p.z, district: distId, playerInvolved: !!p.filmPlayer, witness: p.sp });
+          }
+          if (p.filmSent && p.filmProg >= 6.2) { p.lookAt = { x: T.x, z: T.z }; p.filmTarget = null; p.state = 'watch'; p.timer = Math.max(3.5, p.timer); break; }
+          if (p.timer <= 0 || fd2 > 34) { p.filmTarget = null; this.endReaction(p); }
+          break; }
         case 'hit': { p.timer -= dt; desired = 0; if (p.timer <= 0) { p.state = 'flee'; p.timer = 5 + this.rng.next() * 4; p.fleeSp = 3 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.7); p.ch.anim.set(null); } break; }
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
           p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; } else if (p.awaitMedic) p.timer = Math.max(p.timer, 1); // an ambulance is coming: they stay out cold until the crew wakes them
@@ -544,6 +593,44 @@ export class Crowd {
           break; }
         case 'talkPlayer': { desired = 0; avoid = false; p.yaw = dampAngle(p.yaw, Math.atan2(player.x - p.x, player.z - p.z), 5, dt); p.ch.anim.look = 0; p.timer -= dt; if (p.timer <= 0) this.endReaction(p); break; }
       }
+      // parked driver's errand timer & multimodal transit (bus stop pickup / tuk-tuk hailing)
+      if (p.homeCar && p.errandT > 0) {
+        p.errandT -= dt;
+        if (p.errandT <= 0 && this.isRoutine(p.state) && !p.dead) {
+          if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
+          p.ch.anim.set(null); p.sit = false; p.state = 'toCar'; p.timer = 45; p.rt = 0;
+        }
+      } else if (this.traffic && lod < 3 && (p.state === 'walk' || p.state === 'idle') && !p.keep && !p.job && !p.partner && !p.clique && !p.homeCar && !p.crossing) {
+        this.maybeBoardTransit(p, dt);
+      }
+      // environmental & status micro-awareness (sudden rain, exotic/wrecked vehicles, fresh blood pools)
+      if (rainJustStarted && !p.umbrella && this.isRoutine(p.state) && dist < 32 && this.envRng.chance(0.35)) {
+        p.ch.face.set('concern', 2.5); if (this.envRng.chance(0.45)) this.speak(p, 'rainStart', 0, 2.2);
+      }
+      if (lod === 1 && this.isRoutine(p.state) && (p.envCd = (p.envCd ?? (1.5 + p.id * 3)) - dt) <= 0) {
+        p.envCd = 2.4 + this.envRng.next() * 2.6;
+        const pool = this.blood && this.blood.nearPool ? this.blood.nearPool(p.x, p.z, 5.8) : null;
+        if (pool) {
+          const ax2 = p.x - pool.x, az2 = p.z - pool.z, ad2 = Math.hypot(ax2, az2) || 1;
+          p.envCd = 16; p.ch.face.set('fear', 3); if (this.envRng.chance(0.55)) this.speak(p, 'bloodShock', 1, 2.4);
+          this.react(p, 'recover', 3 + this.envRng.next() * 2, { fleeDir: this.spread(ax2 / ad2, az2 / ad2, 0.7) });
+        } else {
+          const cellV = vgrid.get(Math.floor(p.x / 10) * 10000 + Math.floor(p.z / 10));
+          if (cellV && cellV.length) {
+            for (const cv of cellV) {
+              const cd2 = (cv.x - p.x) ** 2 + (cv.z - p.z) ** 2; if (cd2 > 85) continue;
+              const wreck = (cv.hp !== undefined && cv.hp < 45) || cv.dead;
+              const exotic = !wreck && EXOTIC_CARS.has(cv.type) && Math.abs(cv.speed || 0) < 16;
+              if (wreck || exotic) {
+                p.envCd = 18; p.lookT = 2.0; p.lookAtPt = cv;
+                p.ch.face.set(wreck ? 'surprise' : 'smile', 2.2);
+                if (this.envRng.chance(wreck ? 0.35 : 0.25)) this.speak(p, wreck ? 'carWreck' : 'carNice', 0, 2.2);
+                break;
+              }
+            }
+          }
+        }
+      }
       // rain: umbrella or shelter
       if (this.rain && (p.state === 'walk' || p.state === 'toPoi')) { if (p.umbrella) { p.umbrellaOpen = true; if (p.ch.anim.action !== 'umbrella') p.ch.anim.set('umbrella'); } else if (this.rng.chance(dt * 0.15)) { const sh = this.nearPOIs(p.x, p.z, 25).find((q) => (q.type === 'busStop' || q.type === 'shop' || q.type === 'door') && !this.crossesRoad(p.x, p.z, q.x, q.z)); if (sh) { p.state = 'shelter'; p.target = { x: sh.x, z: sh.z }; p.timer = 40; p.ch.face.set('concern', 2); } } }
       else if ((!this.rain || !this.isRoutine(p.state)) && p.umbrellaOpen) { p.umbrellaOpen = false; if (p.ch.anim.action === 'umbrella') p.ch.anim.set(null); }
@@ -575,7 +662,7 @@ export class Crowd {
             const sameDir = (ovx * dir[0] + ovz * dir[1]); if (ahead < 1.3 && Math.abs(lat) < 0.55) { slow = Math.min(slow, sameDir > 0.2 ? clamp(sameDir / desired, 0.2, 1) : clamp((d - 0.55) / 0.9, 0, 1)); if (slow < 0.35) blockedBy = o; } }
           if (d < rad * 0.9) { dvx -= rx / d * (rad * 0.9 - d) * 2.5; dvz -= rz / d * (rad * 0.9 - d) * 2.5; }
         };
-        for (let i = gi - 2; i <= gi + 2; i++) for (let j = gj - 2; j <= gj + 2; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) if (o !== p && o !== p.partner) consider(o, o.x, o.z, o.vx || 0, o.vz || 0, 0.75); } /* a couple walks side by side: never yield to each other */
+        for (let i = gi - 2; i <= gi + 2; i++) for (let j = gj - 2; j <= gj + 2; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) if (o !== p && o !== p.partner && (!p.clique || o.clique !== p.clique)) consider(o, o.x, o.z, o.vx || 0, o.vz || 0, 0.75); } /* couples and friend cliques walk together without jostling each other */
         if (!pv) consider(player, player.x, player.z, Math.sin(player.yaw) * (player.speed || 0), Math.cos(player.yaw) * (player.speed || 0), 0.85);
         for (const b of fixed) if (b.ch !== player.ch && Math.abs(b.x - p.x) < 4.5 && Math.abs(b.z - p.z) < 4.5) consider(b.ch, b.x, b.z, 0, 0, 0.8);
         dvx = dvx * slow + lx * side * desired * 0.8; dvz = dvz * slow + lz * side * desired * 0.8;
@@ -585,8 +672,19 @@ export class Crowd {
           if (this.collision.blocked(ahx, ahz, 0.25)) { const L1 = !this.collision.blocked(p.x + (dir[0] + lx) * 0.7, p.z + (dir[1] + lz) * 0.7, 0.25), R1 = !this.collision.blocked(p.x + (dir[0] - lx) * 0.7, p.z + (dir[1] - lz) * 0.7, 0.25); const s2 = L1 && !R1 ? 1 : R1 && !L1 ? -1 : (p.wallSide || 1); p.wallSide = s2; dvx += lx * s2 * desired; dvz += lz * s2 * desired; }
         }
       }
-      // vehicles: steer around and never overlap (moving or parked)
-      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; const rq = this.collision.resolveCircle(q.x, q.z, 0.3, p.y || 0.15, 0.3); p.x = rq.x; p.z = rq.z; /* never slid into a wall by the car */ const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0 && p.state !== 'job') { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
+      // vehicles: steer around and never overlap (moving or parked) via 10 m spatial hash
+      vseen.clear();
+      const vgi = Math.floor(p.x / 10), vgj = Math.floor(p.z / 10);
+      for (let vi = vgi - 1; vi <= vgi + 1; vi++) for (let vj = vgj - 1; vj <= vgj + 1; vj++) {
+        const va = vgrid.get(vi * 10000 + vj); if (!va) continue;
+        for (let vk = 0; vk < va.length; vk++) {
+          const v = va[vk]; if (vseen.has(v)) continue; vseen.add(v);
+          if (p.state === 'down') { const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; const rq = this.collision.resolveCircle(q.x, q.z, 0.3, p.y || 0.15, 0.3); p.x = rq.x; p.z = rq.z; const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; }
+          const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue;
+          for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0 && p.state !== 'job') { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } }
+          const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; }
+        }
+      }
       if (p.state === 'down') { dvx = p.vx; dvz = p.vz; } /* knocked: momentum + the down-state friction/arc only */
       if (p.stuckSide > 0) { p.stuckSide -= dt; dvx = p.sideDir[0] * 1.0; dvz = p.sideDir[1] * 1.0; }
       // smoothed acceleration (people do not change velocity instantly)
@@ -694,13 +792,14 @@ export class Crowd {
   // a directional reaction (head snaps back / turns / tips up), a push back of a step. Men who are not elderly may square
   // up and fight back (decided once per person, weighted by temper); everyone else gets away / calls it in. Fighters who
   // are covering up take a quarter. Non-graphic. Returns true when it landed.
+  startPedFight(p) { return this.startFight(p); }
   punched(p, src, move = 'jab', mult = 1) { // mult: the attacker's Strength skill (Skills.js)
     if (!p || p.state === 'down' || p.dead) return false; const M = FIGHT_MOVES[move] || FIGHT_MOVES.jab; const now = this.t;
     p.ko = Math.min(100, (p.ko ?? 100) + (now - (p.koAt ?? now)) * 4); p.koAt = now;
     const dx = p.x - src.x, dz = p.z - src.z, d = Math.hypot(dx, dz) || 1; p.knockedByCar = false; p.lookAt = { x: src.x, z: src.z };
     const facing = Math.cos(wrapAngle(Math.atan2(-dx, -dz) - p.yaw)) > 0.5; const blocked = p.state === 'fight' && p.fblock > 0 && facing;
     p.ko -= M.dmg * mult * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
-    const byP = !!(this.player && src === this.player); if (byP) this.minds.playerAct(p, 'punched'); else if (p.mind) feel(p.mind, EI.FEA, 0.3);
+    const byP = !!(this.player && src === this.player); if (byP) { this.minds.playerAct(p, 'punched'); if (p.clique) this.life.cliqueReact(p, 'punch', src); } else if (p.mind) feel(p.mind, EI.FEA, 0.3);
     this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p, 'assault', byP);
     if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }
     if (p.ko <= 0) { // knocked down (falls back away from the blow), gets up after a while and leaves
@@ -824,30 +923,170 @@ export class Crowd {
         const f = snap ? 1 : Math.min(1, dt * 10); p.x += (nx - p.x) * f; p.z += (nz - p.z) * f; p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); p.fitFail = 0; return; } }
     p.fitFail = now || 1e-3;
   }
-  nearest(x, z, r = 2.5) { let b = null, bd = r * r; for (const p of this.peds) { if (p.state === 'down') continue; const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b; }
-  interact(p, kind, player) {
-    const face = p.ch.face; p.talkCd = 0; const R = this.minds.playerAct(p, kind === 'help' ? 'helped' : kind); const m = p.mind, t = m ? m.tr : null; const T = (i) => (t ? t[i] : 0.5);
-    const ax = p.x - player.x, az = p.z - player.z, ad = Math.hypot(ax, az) || 1;
-    if (kind === 'help') { // helping someone up off the ground: they get up sooner and are grateful (remembered — Mind 'helped')
-      if (p.state !== 'down' || p.dead) return; p.helpedUp = true; if (p.koRag) { const K = p.koRag; K.lie = Math.min(K.lie, Math.max(0, K.t - K.lim) + 0.3); } else p.timer = Math.min(p.timer, 0.5); face.set('concern', 2); return; }
-    if (kind === 'talk') {
-      if (R && (R.like < -0.35 || R.fear > 0.5 || R.harass >= 3)) { // remembers the player: won't talk, keeps away
-        this.react(p, 'complain', 2.5 + this.rng.next()); face.set(R.fear > 0.5 ? 'fear' : 'angry', 2.5); this.speak(p, R.fear > 0.5 ? 'wary' : 'refuse', 1, 2.5); return; }
-      this.react(p, 'talkPlayer', 4); p.ch.anim.set('talk'); face.set('smile', 1.5);
-      this.speak(p, R && R.n > 2 && R.like > 0.25 ? (R.helped > 0 ? 'grateful' : 'rememberGood') : this.rng.chance(0.3 + 0.3 * T(TI.FRI)) ? 'directions' : 'greet', 1, 2.5); }
-    else if (kind === 'wave') { if (R && R.like < -0.3) { p.lookT = 1.5; p.lookAtPt = null; face.set('suspicious', 2); return; } this.react(p, 'talkPlayer', 2.5); p.ch.anim.set(T(TI.SOC) > 0.4 || this.rng.chance(0.5) ? 'wave' : 'nod'); face.set('smile', 2.5); this.speak(p, 'greet', 1); }
-    else if (kind === 'insult') {
-      const E = m ? m.em : null; const stand = p.sp.age !== 'elder' && this.rng.next() < clamp(0.15 + 0.45 * T(TI.AGG) + 0.3 * T(TI.CONF) + (E ? 0.3 * E[EI.ANG] - 0.4 * E[EI.FEA] : 0) - (R && R.fear > 0.4 ? 0.3 : 0), 0.05, 0.9);
-      if (stand) { this.react(p, 'argue', 4); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'annoyed', 1, 2.5); }
-      else if (T(TI.FEARF) > 0.55 || (R && R.harass >= 3)) { this.react(p, 'flee', 3, { fleeDir: this.spread(ax / ad, az / ad, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); }
-      else { this.react(p, 'complain', 2.5); face.set('embarrassed', 2.5); p.ch.anim.play('shrug', 1); } // hurt, embarrassed, walks off
-      if (R && R.harass >= 4 && T(TI.HON) > 0.5 && this.rng.chance(0.5)) { p.state = 'report'; p.timer = 7; p.rt = 0; p.fleeDir = this.spread(ax / ad, az / ad, 0.6); p.repPlayer = true; } // enough is enough: phones the police
+  maybeBoardTransit(p, dt) {
+    const T = this.traffic; if (!T || (p.transitCd = (p.transitCd ?? (2 + p.id * 4)) - dt) > 0) return false;
+    p.transitCd = 1.8 + this.envRng.next() * 2.6;
+    const atBusStop = p.state === 'idle' && p.poi && p.poi.type === 'busStop';
+    if (!atBusStop && !this.envRng.chance(0.016)) return false;
+    let best = null, bd = atBusStop ? 15 * 15 : 12.5 * 12.5;
+    for (const v of T.vehicles) {
+      if (!v.ai || v.ai.emergency || v.ai.chase || v.police || v.player || v.disembarking) continue;
+      if (atBusStop ? (v.type !== 'bus' && v.type !== 'pbus') : v.type !== 'tuktuk') continue;
+      if (!atBusStop && v.paxPlan && v.paxPlan.length > 0) continue; // hail an empty meter tuk
+      if (Math.abs(v.speed || 0) > (atBusStop ? 4.5 : 8.5)) continue;
+      const d2 = (v.x - p.x) ** 2 + (v.z - p.z) ** 2; if (d2 >= bd) continue;
+      // ensure the vehicle's kerb door is on our side of the road (no jaywalking across traffic)
+      const bp = T.paxBoardPoint(v); if (!bp || Math.hypot(bp.x - p.x, bp.z - p.z) > 10) continue;
+      bd = d2; best = v;
     }
-    else if (kind === 'shove') {
+    if (!best || !T.hailStop(best, 8)) return false;
+    if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
+    p.sit = false; p.ch.anim.set(null);
+    if (!atBusStop) { p.ch.anim.play('wave', 1.1); this.speak(p, 'hailTuk', 1, 2.2); }
+    p.state = 'scene'; p.scene = { kind: 'transitBoard', v: best, t: 0 };
+    return true;
+  }
+  stepTransitBoard(p, dt) {
+    const S = p.scene, T = this.traffic, v = S && S.v;
+    if (!S || !T || !v || !v.mesh || !v.mesh.parent || v.player || v.disembarking) {
+      p.scene = null; p.state = 'walk'; this.returnToGraph(p); return { desired: 0 };
+    }
+    S.t += dt; T.hailStop(v, 3.5);
+    const bp = T.paxBoardPoint(v);
+    if (!bp || S.t > 10) { v.hailHold = 0; v.hold = false; p.scene = null; p.state = 'walk'; this.returnToGraph(p); return { desired: 0 }; }
+    const dx = bp.x - p.x, dz = bp.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 1.15 && Math.abs(v.speed || 0) < 0.8) {
+      p.scene = null;
+      if (!T.boardTransit(v, p)) { p.state = 'walk'; this.returnToGraph(p); }
+      return { desired: 0 };
+    }
+    return { desired: clamp(0.8 + d * 1.1, 0.9, 2.0), tx: bp.x, tz: bp.z, avoid: d > 1.8, accel: 3.5 };
+  }
+  nearest(x, z, r = 2.5) { let b = null, bd = r * r; for (const p of this.peds) { if (p.state === 'down') continue; const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b; }
+  // Context-sensitive GTA VI-style multi-turn prompt for the nearest / aimed pedestrian
+  interactSpec(p, armed = false) {
+    if (!p || p.dead) return null;
+    if (p.state === 'down') return !p.helpedUp ? { e: 'help', eLabel: 'Help up' } : null;
+    const S = p.social || (p.social = { greetN: 0, antagN: 0, robbed: false });
+    if (armed) {
+      if (p.state === 'film' || (p.state === 'report' && p.rt < 2.2)) return { e: 'intimidate', eLabel: 'Intimidate ("Drop the phone!")', n: !S.robbed ? 'rob' : null, nLabel: 'Demand cash' };
+      if (!S.robbed && p.state !== 'flee') return { e: 'rob', eLabel: 'Hold up (Demand cash)', n: 'intimidate', nLabel: 'Intimidate' };
+      return { e: 'intimidate', eLabel: 'Intimidate' };
+    }
+    if (p.state === 'film' && !p.filmSent) return { e: 'stopFilm', eLabel: 'Warn off filming', n: 'shove', nLabel: 'Knock phone away' };
+    if (p.state === 'confront' || p.state === 'argue' || p.state === 'complain' || (p.state === 'report' && p.rt < 2.2)) {
+      return { e: 'defuse', eLabel: 'Defuse / Apologize', n: 'shove', nLabel: 'Shove' };
+    }
+    const e = S.greetN === 0 ? 'talk' : S.greetN === 1 ? 'chat' : 'farewell';
+    const eLabel = S.greetN === 0 ? 'Greet' : S.greetN === 1 ? 'Small talk' : 'Wish well';
+    const n = S.antagN === 0 ? 'insult' : S.antagN === 1 ? 'provoke' : 'shove';
+    const nLabel = S.antagN === 0 ? 'Antagonize' : S.antagN === 1 ? 'Provoke' : 'Shove';
+    return { e, eLabel, n, nLabel };
+  }
+  interact(p, kind, player) {
+    const face = p.ch.face; p.talkCd = 0;
+    const S = p.social || (p.social = { greetN: 0, antagN: 0, robbed: false });
+    const mindKind = kind === 'help' ? 'helped' : kind === 'stopFilm' ? 'intimidated' : kind === 'rob' ? 'robbed' : kind === 'intimidate' ? 'intimidated' : kind;
+    const R = this.minds.playerAct(p, mindKind); const m = p.mind, t = m ? m.tr : null; const T = (i) => (t ? t[i] : 0.5);
+    const ax = p.x - player.x, az = p.z - player.z, ad = Math.hypot(ax, az) || 1;
+    if (kind === 'help') {
+      if (p.state !== 'down' || p.dead) return null; p.helpedUp = true; if (p.koRag) { const K = p.koRag; K.lie = Math.min(K.lie, Math.max(0, K.t - K.lim) + 0.3); } else p.timer = Math.min(p.timer, 0.5); face.set('concern', 2); return { ok: true }; }
+    if (kind === 'talk') {
+      S.greetN = 1; S.antagN = 0;
+      if (R && (R.like < -0.35 || R.fear > 0.5 || R.harass >= 3)) {
+        this.react(p, 'complain', 2.5 + this.rng.next()); face.set(R.fear > 0.5 ? 'fear' : 'angry', 2.5); this.speak(p, R.fear > 0.5 ? 'wary' : 'refuse', 1, 2.5); return { playerLine: 'playerGreet' }; }
+      this.react(p, 'talkPlayer', 4.5); p.ch.anim.set('talk'); face.set('smile', 1.8);
+      this.speak(p, R && R.n > 2 && R.like > 0.25 ? (R.helped > 0 ? 'grateful' : 'rememberGood') : this.rng.chance(0.3 + 0.3 * T(TI.FRI)) ? 'directions' : 'greet', 1, 2.5);
+      return { playerLine: 'playerGreet' };
+    }
+    if (kind === 'chat') {
+      S.greetN = 2;
+      this.react(p, 'talkPlayer', 5); p.ch.anim.set(this.rng.chance(0.5) ? 'talk' : 'nod'); face.set('smile', 2.4);
+      this.speak(p, 'smallTalk', 1, 2.8);
+      return { playerLine: 'playerChat' };
+    }
+    if (kind === 'farewell') {
+      S.greetN = 0;
+      this.react(p, 'talkPlayer', 2.2); p.ch.anim.play('wave', 1.1); face.set('smile', 2.2);
+      this.speak(p, 'farewell', 1, 2.2);
+      return { playerLine: 'playerBye' };
+    }
+    if (kind === 'wave') { if (R && R.like < -0.3) { p.lookT = 1.5; p.lookAtPt = null; face.set('suspicious', 2); return null; } this.react(p, 'talkPlayer', 2.5); p.ch.anim.set(T(TI.SOC) > 0.4 || this.rng.chance(0.5) ? 'wave' : 'nod'); face.set('smile', 2.5); this.speak(p, 'greet', 1); return null; }
+    if (kind === 'defuse') {
+      S.antagN = 0;
+      const calm = this.rng.next() < clamp(0.52 + 0.32 * T(TI.FRI) - 0.28 * T(TI.AGG) - (R && R.harass >= 3 ? 0.35 : 0), 0.12, 0.9);
+      if (calm && p.state !== 'fight') {
+        p.repPlayer = false; this.react(p, 'talkPlayer', 2.4); p.ch.anim.play('nod', 1.0); face.set('neutral', 2); face.mood = 'neutral';
+        this.speak(p, 'defused', 1, 2.4);
+      } else {
+        this.react(p, 'complain', 2.8); face.set('angry', 2.5); this.speak(p, 'refuse', 1, 2.2);
+      }
+      return { playerLine: 'playerDefuse', defused: calm };
+    }
+    if (kind === 'stopFilm') {
+      const drop = this.rng.next() < clamp(0.62 + 0.25 * T(TI.FEARF) - 0.25 * T(TI.CONF), 0.2, 0.92);
+      if (drop) {
+        p.filmSent = true; p.filmTarget = null;
+        this.react(p, 'recover', 3.5, { fleeDir: this.spread(ax / ad, az / ad, 0.6) }); face.set('concern', 2.5);
+        this.speak(p, 'stopFilmReply', 1, 2.4);
+      } else {
+        p.timer = Math.max(p.timer, 3.5); face.set('angry', 2.5); this.speak(p, 'antagonizeReply', 1, 2.2);
+      }
+      return { playerLine: 'playerIntimidate', stopped: drop };
+    }
+    if (kind === 'insult') {
+      S.antagN = 1; S.greetN = 0;
+      if (p.clique) this.life.cliqueReact(p, 'insult', player);
+      const E = m ? m.em : null; const stand = p.sp.age !== 'elder' && this.rng.next() < clamp(0.2 + 0.45 * T(TI.AGG) + 0.3 * T(TI.CONF) + (E ? 0.3 * E[EI.ANG] - 0.4 * E[EI.FEA] : 0) - (R && R.fear > 0.4 ? 0.3 : 0), 0.08, 0.9);
+      if (stand) { this.react(p, 'confront', 4.5); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'antagonizeReply', 1, 2.5); }
+      else if (T(TI.FEARF) > 0.55 || (R && R.harass >= 3)) { this.react(p, 'flee', 3, { fleeDir: this.spread(ax / ad, az / ad, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); }
+      else { this.react(p, 'complain', 3.0); face.set('embarrassed', 2.5); p.ch.anim.play('shrug', 1); this.speak(p, 'annoyed', 1, 2.2); }
+      if (R && R.harass >= 4 && T(TI.HON) > 0.5 && this.rng.chance(0.5)) { p.state = 'report'; p.timer = 7; p.rt = 0; p.fleeDir = this.spread(ax / ad, az / ad, 0.6); p.repPlayer = true; }
+      return { playerLine: 'playerAntagonize' };
+    }
+    if (kind === 'provoke') {
+      S.antagN = 2; S.greetN = 0;
+      if (p.clique) this.life.cliqueReact(p, 'provoke', player);
+      const fightBack = p.sp.age !== 'elder' && !p.sit && this.rng.next() < clamp(0.22 + 0.52 * T(TI.AGG) + 0.25 * T(TI.CONF) - 0.3 * T(TI.FEARF), 0.08, 0.85);
+      if (fightBack) { this.speak(p, 'provokeReply', 2, 2.5); this.startFight(p); this.alarm(p.x, p.z, 14, 1, p, 'dispute', true); }
+      else if (T(TI.HON) > 0.55 && this.rng.chance(0.45)) { this.react(p, 'report', 7, { fleeDir: this.spread(ax / ad, az / ad, 0.6), repPlayer: true }); face.set('angry', 3); }
+      else { this.react(p, 'flee', 3.5, { fleeDir: this.spread(ax / ad, az / ad, 0.6), fleeSp: 3.0 }); face.set('fear', 3); this.speak(p, 'scared', 1, 2.2); }
+      return { playerLine: 'playerProvoke' };
+    }
+    if (kind === 'shove') {
+      S.antagN = 0;
+      if (p.state === 'film') { p.filmSent = true; p.filmTarget = null; }
+      if (p.clique) this.life.cliqueReact(p, 'shove', player);
       this.react(p, 'stumble', 0.75 + this.rng.next() * 0.35); p.vx = ax / ad * 2.4; p.vz = az / ad * 2.4; p.ch.anim.set('stumble'); face.set('surprise', 1.2);
       this.alarm(p.x, p.z, 12, 1, p, 'scuffle', true);
+      return { ok: true };
     }
-    else if (kind === 'photo') { if (R && R.like < -0.2) { face.set('suspicious', 2); p.ch.anim.play('shrug', 1); return; } if (this.rng.chance(0.3 + 0.5 * T(TI.SOC))) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } else { face.set('embarrassed', 2); p.lookT = 1.2; p.lookAtPt = null; } }
+    if (kind === 'rob') {
+      if (S.robbed) return null; S.robbed = true;
+      if (p.clique) this.life.cliqueReact(p, 'rob', player);
+      const resist = !this.playerArmed && p.sp.age !== 'elder' && this.rng.next() < 0.45 * T(TI.CONF);
+      if (resist) {
+        this.speak(p, 'robRefuse', 2, 2.4); this.startFight(p);
+        this.alarm(p.x, p.z, 16, 1, p, 'holdup', true);
+        return { playerLine: 'robDemand', cash: 0 };
+      }
+      const distId = L.districtIdAt(p.x, p.z);
+      const rich = distId === 'cinnamon' || distId === 'fort' || distId === 'gftowers' || distId === 'kollupitiya' ? 2.1 : 1.0;
+      const cash = Math.round((450 + this.rng.int(0, 1850)) * rich / 50) * 50;
+      this.react(p, 'surrender', 3.2 + this.rng.next() * 1.8); p.ch.anim.set('handsup'); face.set('fear', 4);
+      this.speak(p, 'robPlea', 2, 2.6);
+      this.alarm(p.x, p.z, 18, 1, p, 'holdup', true);
+      return { playerLine: 'robDemand', cash };
+    }
+    if (kind === 'intimidate') {
+      if (p.state === 'film') { p.filmSent = true; p.filmTarget = null; }
+      p.repPlayer = false;
+      this.react(p, 'flee', 4.5 + this.rng.next() * 3, { fleeDir: this.spread(ax / ad, az / ad, 0.5), fleeSp: 3.6 + this.rng.next() });
+      face.set('fear', 4); this.speak(p, 'stopFilmReply', 2, 2.4);
+      return { playerLine: 'playerIntimidate', stopped: true };
+    }
+    if (kind === 'photo') { if (R && R.like < -0.2) { face.set('suspicious', 2); p.ch.anim.play('shrug', 1); return null; } if (this.rng.chance(0.3 + 0.5 * T(TI.SOC))) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } else { face.set('embarrassed', 2); p.lookT = 1.2; p.lookAtPt = null; } return null; }
+    return null;
   }
   // 73rd: civilians notice a drawn gun (the police never react to this — only to what you do with it). A few checks a second,
   // at most two sight rays per check, nearest first: someone facing you notices sooner and from further away (less at night),
@@ -893,8 +1132,8 @@ export class Crowd {
   }
   // turn an existing character (e.g. a driver pulled out of a vehicle) into a pedestrian with a reaction
   adopt(ch, x, z, yaw, reaction = 'flee', from = null) {
-    this.scene.add(ch.root); ch.root.position.set(x, this.collision.groundAt(x, z, 0.5), z); ch.root.rotation.set(0, yaw, 0); ch.anim.set(null); ch.mesh.castShadow = true;
-    const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined };
+    this.group.add(ch.root); ch.root.position.set(x, this.collision.groundAt(x, z, 0.5), z); ch.root.rotation.set(0, yaw, 0); ch.anim.set(null); ch.mesh.castShadow = true;
+    const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, errandT: 0, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, social: null, filmTarget: null, filmKind: null, filmPlayer: false, filmProg: 0, filmSent: false, clique: null, envCd: 0, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined };
     ch.crowdPed = p; this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y; this.minds.attach(p, { anon: !sp || sp._k === undefined }); if (reaction === 'confront') { p.temper = Math.max(p.temper, 0.75); if (p.mind) feel(p.mind, EI.ANG, 0.6); } else if (reaction !== 'calm' && p.mind) feel(p.mind, EI.FEA, 0.5);
     const ax = from ? x - from.x : -Math.sin(yaw), az = from ? z - from.z : -Math.cos(yaw), d = Math.hypot(ax, az) || 1;
     if (reaction === 'confront') { this.react(p, 'confront', 4); p.ch.anim.set('argue'); ch.face.set('angry', 4); this.speak(p, 'shoved', 2, 2.5); }
@@ -902,7 +1141,7 @@ export class Crowd {
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p, reaction === 'confront' ? 'dispute' : 'scuffle'); return p;
   }
-  despawn(p) { this.minds.detach(p); if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { this.minds.detach(p); if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;

@@ -135,9 +135,11 @@ export class Blood {
     for (let v = 0; v < ROUND + DIRN; v++) { this.splatMesh.push(mk(flat, v < ROUND ? splatTexture(v + 1) : dirTexture(v), 0.3, SPLATS, 'bloodSplats')); this.splatList.push([]); }
     this.poolMesh = mk(flat, poolTexture(), 0.12, POOLS, 'bloodPools', true); this.pools = [];
     this.wallMesh = mk(up, wallTexture(1), 0.34, WALLS, 'bloodWall'); this.walls = [];
+    this.reflMeshes = [this.points, this.mist, this.poolMesh, this.wallMesh, ...this.splatMesh];
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._p = new THREE.Vector3(); this._y = new THREE.Vector3(0, 1, 0); this._e = new THREE.Euler();
     this.bleeders = []; this.visible = true; this.n = 0; this.nd = 0; this.dryT = 0; this.dirty = new Set();
   }
+  nearPool(x, z, r = 7) { const r2 = r * r; for (let i = this.pools.length - 1; i >= 0; i--) { const p = this.pools[i]; if (p.k <= 0.15) continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz < r2) return p; } return null; }
   get on() { return Settings.get('blood') !== false; }
   ground(x, z, y = 0) { return this.col ? this.col.groundAt(x, z, y + 0.3) : 0; }
   drop(x, y, z, vx, vy, vz, size, life = 2.5) { const i = this.head; this.head = (this.head + 1) % MAXP; const j = i * 3;
@@ -175,10 +177,13 @@ export class Blood {
     if (head && head.visible !== false) { head.updateWorldMatrix(true, false); const c = new THREE.Vector3().setFromMatrixPosition(head.matrixWorld); if (point.distanceTo(c) < 0.17) target = head; }
     if (target === ch.mesh && ch.head && ch.head.name === 'heroHead') { const hb = ch.bones && ch.bones.head; if (hb) { const c = new THREE.Vector3().setFromMatrixPosition(hb.matrixWorld); if (point.distanceTo(c) < 0.16) target = ch.head; } }
     const bp = bindPoint(target, point, dir); if (!bp) return false;
-    // materials that will show it: the crowd's shared body material is swapped for this person's own copy (same program)
+    // materials that will show it: the crowd's shared body / head material is swapped for this person's own copy (same program)
     const mats = Array.isArray(target.material) ? target.material : [target.material];
     if (target === ch.mesh && !ch.bloodMat) { const sh = mats.find((m) => isBloodPatched(m) && !m.userData.bloodOwn && !(ch.heroMats || []).includes(m));
       if (sh) { ch.bloodMat = bloodClone(sh); const arr = mats.map((m) => (m === sh ? ch.bloodMat : m)); target.material = Array.isArray(target.material) ? arr : arr[0]; } }
+    else if (target !== ch.mesh && target.material && target.material.userData && target.material.userData.pooledHead) {
+      const hm = bloodClone(target.material); if (ch.head) ch.head.material = hm; if (ch.headLo) ch.headLo.material = hm; ch.headMats = [hm];
+    }
     slots = (Array.isArray(target.material) ? target.material : [target.material]).filter((m) => isBloodPatched(m) && (m.userData.bloodOwn || (ch.heroMats || []).includes(m) || (ch.headMats || []).includes(m) || target !== ch.mesh));
     const uniq = [...new Set(slots)]; if (!uniq.length) return false;
     const r = opts.r ?? Math.min(0.11, 0.04 + 0.028 * size), run = opts.run ?? Math.min(0.32, 0.1 + 0.08 * size);

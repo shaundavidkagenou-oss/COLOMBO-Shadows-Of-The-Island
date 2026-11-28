@@ -31,6 +31,13 @@ const APPS = [
   { id: 'global', name: 'Global', icon: '◍', col: '#1d63c9' },
   { id: 'events', name: 'City Events', icon: '✺', col: '#c9952b' },
   { id: 'afterdark', name: 'After Dark', icon: '☾', col: '#5a2f7d' }, // 92nd: tonight's fight nights and race meets (activities/ActivityManager.js) // 81st: live list from the event manager (world/CityEvents.js)
+  { id: 'live', name: 'ColomboLive', icon: '▶', col: '#d93654' },
+];
+const LIVE_HANDLES = ['@colombo_eyewitness', '@fort_commuter_lk', '@galle_rd_pulse', '@pettah_insider', '@lanka_streetcam', '@marine_dr_live', '@cmb_watch_247'];
+const LIVE_AMBIENT = [
+  { u: '@galleface_vibes', t: 'Isso wade & sea breeze hitting different on Galle Face Green tonight 🌊🦐 #Colombo #LK', d: 'Galle Face Green', v: 3420, l: 612, at: { x: -490, z: 40 } },
+  { u: '@pettah_tuk_king', t: 'Main Street traffic is madness as usual machan 😂 Horn symphony in full swing! #Pettah #TukLife', d: 'Pettah', v: 1890, l: 284, at: { x: -80, z: -260 } },
+  { u: '@cinnamon_gardens_lk', t: 'Spotted a clean metallic Raiden cruising past Viharamahadevi Park 🔥 Whose ride is this?', d: 'Cinnamon Gardens', v: 5120, l: 940, at: { x: 180, z: 260 } },
 ];
 const EV_TABS = [['now', 'Now'], ['today', 'Today'], ['upcoming', 'Upcoming'], ['recent', 'Recent']];
 const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' },
@@ -45,6 +52,38 @@ export class Phone {
     this.root.addEventListener('click', (e) => { const tb = e.target.closest('[data-tab]'); if (tb && this.app === 'events') { this.evTab = +tb.dataset.tab; this.evOpen = null; this.row = 0; Audio.ui('hover'); this.render(); return; } const t = e.target.closest('[data-i]'); if (!t) return; if (!this.app) { this.sel = +t.dataset.i; this.launch(APPS[this.sel].id); } else { this.row = +t.dataset.i; this.activate(); } });
     this.root.addEventListener('contextmenu', (e) => { e.preventDefault(); this.back(); });
     this.browser = new GlobalBrowser(this, game);
+    this.liveFeed = [];
+  }
+  pushLivePost(ev) {
+    const g = this.g, A = g.atmos;
+    const dName = (L.DISTRICTS && L.DISTRICTS[ev.district] && L.DISTRICTS[ev.district].name) || ev.district || 'Colombo';
+    const u = LIVE_HANDLES[Math.floor(Math.random() * LIVE_HANDLES.length)];
+    const k = ev.kind || 'fight';
+    const cap = k === 'holdup' ? `Broad-daylight hold-up caught on camera in ${dName}! Stay alert everyone 😱📹 #ColomboLive #119`
+      : k === 'gunshot' ? `Shots heard near ${dName}!! People running for cover — stay clear of that junction! 🚨`
+      : k === 'crash' || k === 'accident' ? `Heavy smash on the road in ${dName}! Traffic backing up fast 💥🚗`
+      : k === 'brawl' || k === 'assault' ? `Street brawl breaking out right in front of us in ${dName}! Whole crowd watching 😳👊`
+      : `Wild confrontation on the pavement in ${dName} — caught the whole thing on clip! 📱👀`;
+    const post = {
+      u, t: cap, d: dName, when: `Day ${A ? A.day : 1} · ${A ? A.timeString : '12:00'}`,
+      viral: !!ev.playerInvolved, t0: g.crowd ? g.crowd.t : 0,
+      v: ev.playerInvolved ? 1200 + Math.floor(Math.random() * 900) : 340 + Math.floor(Math.random() * 500),
+      l: 95 + Math.floor(Math.random() * 180),
+      at: { x: ev.x, z: ev.z },
+    };
+    this.liveFeed.unshift(post);
+    if (this.liveFeed.length > 18) this.liveFeed.length = 18;
+    if (this.open && this.app === 'live') this.render();
+    return post;
+  }
+  liveRows() {
+    const nowT = this.g.crowd ? this.g.crowd.t : 0;
+    const dyn = this.liveFeed.map((p) => {
+      const age = Math.max(0, nowT - (p.t0 || 0));
+      const mult = p.viral ? 1 + Math.min(12, age * 0.08) : 1 + Math.min(4, age * 0.025);
+      return { ...p, views: Math.round(p.v * mult), likes: Math.round(p.l * mult) };
+    });
+    return [...dyn, ...LIVE_AMBIENT.map((p) => ({ ...p, when: 'Trending · Colombo', views: p.v, likes: p.l, viral: false }))];
   }
   toggle(v = !this.open) {
     const g = this.g; if (v && (g.photo || g.hud.bigMapOpen || g.director.active)) return;
@@ -78,6 +117,7 @@ export class Phone {
     if (this.app === 'global') return this.browser.rows();
     if (this.app === 'events') { if (this.evOpen) return [{ t: 'Navigate' }, { t: 'Back to the list' }]; const S = this.evSections(); return S ? S[EV_TABS[this.evTab || 0][0]] : []; }
     if (this.app === 'afterdark') return this.g.activities ? this.g.activities.phoneRows() : [];
+    if (this.app === 'live') return this.liveRows();
     if (this.app === 'health') return [{ t: 'Call 1990 Suwa Seriya' }, { t: 'GPS to National Hospital' }];
     if (this.app === 'contacts') { if (!this.call) return this.contacts(); if (this.call.stage === 'ask') return this.call.friend ? callOptions(this.friend(this.call.friend)) : [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
     return [];
@@ -99,6 +139,7 @@ export class Phone {
       this.back(); return; }
     if (this.app === 'jobs') { const j = this.jobs()[this.row]; if (j && j.at) { g.hud.setWaypoint(j.at.x, j.at.z); this.toggle(false); } return; }
     if (this.app === 'afterdark') { const r = this.rows()[this.row]; if (r && r.at) { g.hud.setWaypoint(r.at.x, r.at.z); g.hud.notify('GPS set', r.t, 'info', 3); this.toggle(false); } return; }
+    if (this.app === 'live') { const r = this.rows()[this.row]; if (r && r.at) { g.hud.setWaypoint(r.at.x, r.at.z); g.hud.notify('ColomboLive GPS', `Pinned clip location in ${r.d}`, 'info', 3); this.toggle(false); } return; }
     if (this.app === 'health') {
       if (this.row === 1) { g.hud.setWaypoint(L.PLACES.hospital.x, L.PLACES.hospital.z); this.toggle(false); return; }
       if (!this.confirm) { this.confirm = true; this.render(); return; }
@@ -200,6 +241,16 @@ export class Phone {
       const M = g.activities; const rows = this.rows();
       h = `<div class="ph-head">After Dark</div><div class="ph-sub">${M ? esc(M.summary()) : ''} · Enter: GPS</div><div class="ph-list">` + (rows.length ? rows.map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${esc(r.t)}</b><p>${esc(r.d)}</p><small>${esc(r.sub || '')}</small></div>`).join('') : '<div class="ph-empty">Nothing on tonight.</div>') + '</div>' +
         '<div class="ph-hint">Fight nights 21:30–01:30 · race meets 22:30–02:30. Predictions use free points, never money.</div>';
+    } else if (this.app === 'live') {
+      const C = g.crowd; const viralLeft = C && C.viralUntil > C.t ? Math.ceil(C.viralUntil - C.t) : 0;
+      const vDist = viralLeft ? ((L.DISTRICTS && L.DISTRICTS[C.viralDistrict] && L.DISTRICTS[C.viralDistrict].name) || C.viralDistrict || 'Colombo') : '';
+      const rows = this.liveRows();
+      const banner = viralLeft
+        ? `<div class="ph-sub" style="color:#ff6b7a;font-weight:600">● VIRAL IN ${esc(vDist.toUpperCase())} (${viralLeft}s) — Locals recognize you! Change outfit at Ceylon Threads or switch hero to clear.</div>`
+        : `<div class="ph-sub">● LIVE · Witness clips & street pulse across Colombo · Enter: GPS</div>`;
+      h = `<div class="ph-head">ColomboLive</div>` + banner + `<div class="ph-list">` +
+        rows.map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${r.viral ? '<span style="color:#ff5268">[VIRAL]</span> ' : ''}${esc(r.u)} <small>· ${esc(r.d)}</small></b><p>${esc(r.t)}</p><small>${esc(r.when)} · 👁 ${r.views.toLocaleString('en-LK')} · ♥ ${r.likes.toLocaleString('en-LK')}</small></div>`).join('') +
+        `</div><div class="ph-hint">Witnesses filming upload in 5s unless warned off or interrupted.</div>`;
     } else if (this.app === 'events') {
       h = this.evHtml();
     } else if (this.app === 'weather') {

@@ -53,6 +53,8 @@ import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLO
 import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
+import { skipInRefl, reflSkipProviders } from './world/Water.js';
+import { LINES } from './story/Lines.js';
 import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
 import { Crowd } from './actors/Crowd.js';
@@ -129,8 +131,9 @@ export class Game {
   constructor(root) {
     this.root = root; this.bus = bus; this.clock = 0; this.dt = 0; this.mode = 'boot'; this.paused = false; this.radio = 0; this.autosaveT = 0; this.fps = 60; this.indoor = false;
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
-    const preset = Settings.preset;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
+    if (!Settings.hasSaved && !TEST) Settings.autoTune(gpuInfo(this.renderer)); // first boot on mid/low GPUs (e.g. GTX 1660 Super): balanced 60+ FPS defaults
+    const preset = Settings.preset;
     TexLib.init(this.renderer); this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
     this.dynK = 1; this.dynT = 0; this.dynHold = 0; this.dynUpAt = -1e9; this.renderer.setPixelRatio(this.basePR());
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -179,10 +182,10 @@ export class Game {
     this.headRig = new HeadlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 2 : 4, shadows: Settings.preset.shadows, shadowRes: Settings.get('quality') === 'ultra' ? 2048 : 1024 }); // real headlight beams (pool created once at load)
     this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
-    this.crowd = new Crowd(this.scene, this.collision, bus);
+    this.crowd = new Crowd(this.scene, this.collision, bus); skipInRefl(this.crowd.group);
     this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; this.caps = new LooseCaps(this.scene, this.collision); this.ragdolls.caps = this.caps; // police caps that come off (src/actors/LooseCaps.js)
     // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
-    this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
+    this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; for (const m of this.blood.reflMeshes || []) skipInRefl(m); // impact spray, splats, pools (Settings → Blood effects)
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     { // police / ambulance crews: their looks are a fixed set (PoliceResponse.crewSpec) — build the bodies now, not mid-chase
       const crews = []; for (let id = 0; id < CREW_LOOKS.police; id++) for (let k = 0; k < 2; k++) crews.push([id, k, false]); for (let id = 0; id < CREW_LOOKS.ems; id++) for (let k = 0; k < 2; k++) crews.push([id, k, true]); for (let id = 0; id < CREW_LOOKS.rs; id++) for (let k = 0; k < 2; k++) crews.push([id, k, 'rsvan']); // (80th: roadside mechanics)
@@ -224,6 +227,13 @@ export class Game {
     await bootTextures(this); // 59th: Texture Studio replacements (texture-pack/ or the Studio's saved manifest; nothing is loaded when there are none)
     SoundBank.load().catch((e) => console.warn('[sounds]', e)); // replacement recordings: the built-in pack + any saved with the `sounds` window (decoded once audio starts)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
+    // WaterReflection fast-path: skip dynamic vehicles, seated occupants, protagonist/squad, and police on foot in the 384px water reflection pass
+    reflSkipProviders.add((mark) => {
+      for (const v of LIVE_VEHICLES) if (v.mesh) mark(v.mesh);
+      if (this.player?.ch?.root) mark(this.player.ch.root);
+      if (this.squad?.members) for (const m of this.squad.members) if (m.ch?.root) mark(m.ch.root);
+      if (this.police?.foot) for (const o of this.police.foot) if (o.ch?.root) mark(o.ch.root);
+    });
     try { await this.compileForGame(this.scene, 15000); } catch (e) { console.warn('compile', e); } // the main pass's programs (see compileForGame)
     this.wireEvents();
     DevLock.install(() => { try { this.hud.notify('Developer tools activated', 'Console ( ` ) and Texture Studio are back', 'success', 4); } catch (e) { /* menu */ } }); // the secret code works anywhere in the game
@@ -420,6 +430,7 @@ export class Game {
   }
   async playEnding(kind, state) { this.player.control = false; await this.hud.fade(1, 1.2); this.hud.show(false); Input.releaseLock(); this.ignoreUnlock = true; await this.screens.ending(kind, state); this.ignoreUnlock = false; this.hud.show(true); await this.hud.fade(0, 1); this.player.control = true; Input.requestLock(this.canvas); this.autosave(); }
   rebuildPlayer(lookOverride) {
+    if (this.crowd && lookOverride === undefined) this.crowd.viralUntil = 0; // fresh outfit clears ColomboLive street recognition
     const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = this.debug?.playerSpec || applyLook(HEROES[id], lookOverride !== undefined ? lookOverride : fits[id]); // wardrobe look (shops) or the tailor's jacket colour (older saves: a colour string)
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
     if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.grenades) this.grenades.end(); if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
@@ -477,6 +488,12 @@ export class Game {
     });
     bus.on('pedHit', (p) => { if (p && p.knockedByCar) Audio.crash(4); });
     bus.on('pedReport', (e) => { if (this.police) this.police.report(e); });
+    bus.on('socialPost', (ev) => {
+      if (this.phone) this.phone.pushLivePost(ev);
+      if (ev && ev.playerInvolved && this.mode === 'play' && !this.director.active) {
+        this.hud.notify('ColomboLive · Clip Uploaded', `A witness uploaded footage of you! Open Phone (${this.hud.key('phone')}) → ColomboLive.`, 'warn', 5);
+      }
+    });
     bus.on('pedHit', (p) => { const P = this.player; if (!this.police || !p || this.mode !== 'play' || p.contractKill) return; const src = P.vehicle || P; if (Math.hypot(p.x - src.x, p.z - src.z) > 10) return; if (p.knockedByCar) { if (P.vehicle) this.police.crime(p.x, p.z, 'vehicle'); } else this.police.crime(p.x, p.z, 'assault'); }); // only incidents the player caused
   }
   // ================================================================= input
@@ -741,22 +758,58 @@ export class Game {
     if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}` + plus; }
     if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}` + plus; }
     if (lp) return lp; // loot before small talk / helping up (and with a weapon drawn)
-    if (this.weapons && this.weapons.drawn) return null; // armed: no small talk (holster with X)
+    const heroSay = (cat) => {
+      const pool = LINES[cat]; if (!pool || !pool.length) return;
+      const ln = pool[Math.floor(Math.random() * pool.length)];
+      const nm = this.squad?.activeMember?.def?.name || 'Dineth';
+      this.hud.subtitle(nm, ln.si || ln.ta || ln.en, ln.tr || '', 2.4, ln.si ? 'si' : ln.ta ? 'ta' : 'en');
+    };
+    if (this.weapons && this.weapons.drawn) {
+      // Armed hold-up / witness intimidation (within 5.5 m when aiming, or 3.2 m in front)
+      let tgt = this.weapons.aimW > 0.35 && this.weapons.pickPed ? this.weapons.pickPed(5.5)?.p : null;
+      if (!tgt) {
+        let bdA = 3.2; const fxA = Math.sin(P.yaw), fzA = Math.cos(P.yaw);
+        for (const p of this.crowd.peds) { if (p.dead || p.state === 'down') continue; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d < bdA && (dx * fxA + dz * fzA) / (d || 1) > 0.35) { bdA = d; tgt = p; } }
+      }
+      const spec = tgt && this.crowd.interactSpec ? this.crowd.interactSpec(tgt, true) : null;
+      if (!spec) return null;
+      if (Input.wasPressed('interact')) {
+        const res = this.crowd.interact(tgt, spec.e, P);
+        if (res?.playerLine) heroSay(res.playerLine);
+        if (res?.cash > 0) { this.story.pay(res.cash, 'Street hold-up'); this.hud.notify('Hold-up', `Took Rs. ${res.cash.toLocaleString('en-LK')}`, 'warn', 3); }
+      } else if (spec.n && Input.wasPressed('insult') && !P.cover && !P.coverLeft) {
+        const res = this.crowd.interact(tgt, spec.n, P);
+        if (res?.playerLine) heroSay(res.playerLine);
+      }
+      return `${key('interact')} ${spec.eLabel}` + (spec.n ? ` · ${key('insult')} ${spec.nLabel}` : '');
+    }
     { const sp = this.station && this.station.interact(P, key, () => Input.wasPressed('interact')); if (sp) return sp; }
     if (this.cityEvents && !P.vehicle && !I.current) { for (const site of this.cityEvents.sites.values()) { const b = site.info; if (!b || site.shown < 3 || Math.hypot(P.x - b.x, P.z - b.z) > 1.6) continue; if (Input.wasPressed('interact')) { this.phone.toggle(true); this.phone.launch('events'); this.phone.evOpen = site.ev.id; this.phone.row = 0; this.phone.render(); } return `${key('interact')} Event info · ${site.ev.title || site.ev.T.title}`; } } // 81st: read the event's info board → its page in the City Events app // a Fort station shoulder vendor: buy from them
-    // pedestrians: nearest in front within 2.6 m
-    let best = null, bd = 2.6; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-    for (const p of this.crowd.peds) { if (p.dead) continue; const dx = p.x - P.x, dz = p.z - P.z; const d = Math.hypot(dx, dz); if (d < bd && (dx * fx + dz * fz) / (d || 1) > 0.2) { bd = d; best = p; } }
+    // pedestrians: nearest in front within 2.8 m (or witness filming within 4.0 m)
+    let best = null, bd = 2.8; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    for (const p of this.crowd.peds) { if (p.dead) continue; const dx = p.x - P.x, dz = p.z - P.z; const d = Math.hypot(dx, dz); const lim = p.state === 'film' && p.filmPlayer ? 4.0 : bd; if (d < lim && (dx * fx + dz * fz) / (d || 1) > 0.2) { if (d < bd || p.state === 'film') { bd = Math.min(bd, d); best = p; } } }
     if (best && best.state === 'down') { // someone knocked down: help them up (they remember it — Mind.js)
       if (best.awaitMedic || best.helpedUp || (best.ch.rag && best.ch.rag.kin) || (best.koRag && best.koRag.ph)) return null;
       if (Input.wasPressed('interact')) { this.crowd.interact(best, 'help', P); P.ch.anim.play('interact', 1.4); } return `${key('interact')} Help up`; }
     if (best) {
-      if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.play('talk', 1.8); }
-      else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5); }
-      else if (Input.wasPressed('insult') && !P.cover && !P.coverLeft) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle(this.squad.activeMember.def.name, ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
-      else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6); }
-      return `${key('interact')} Talk · ${key('more')} Wave · ${key('insult')} Insult · ${key('shove')} Shove`;
+      const spec = this.crowd.interactSpec ? this.crowd.interactSpec(best, false) : { e: 'talk', eLabel: 'Greet', n: 'insult', nLabel: 'Antagonize' };
+      if (Input.wasPressed('interact')) {
+        const res = this.crowd.interact(best, spec.e, P);
+        P.ch.anim.play(spec.e === 'farewell' ? 'wave' : 'talk', 1.6);
+        if (res?.playerLine) heroSay(res.playerLine);
+      } else if (Input.wasPressed('more')) {
+        this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5);
+      } else if (Input.wasPressed('insult') && !P.cover && !P.coverLeft) {
+        const res = this.crowd.interact(best, spec.n, P);
+        P.ch.anim.play(spec.n === 'shove' ? 'shove' : 'point', spec.n === 'shove' ? 0.6 : 1.2);
+        if (res?.playerLine) heroSay(res.playerLine);
+      } else if (Input.wasPressed('shove')) {
+        this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6);
+      }
+      return `${key('interact')} ${spec.eLabel} · ${key('more')} Wave · ${key('insult')} ${spec.nLabel} · ${key('shove')} Shove`;
     }
+    const filmer = this.crowd.activeFilmerNear ? this.crowd.activeFilmerNear(P.x, P.z, 22) : null;
+    if (filmer) return `● REC · Witness filming for ColomboLive (${Math.max(1, Math.ceil(5 - (filmer.filmProg || 0)))}s) — approach to warn off`;
     // emotes when nobody is around
     if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;

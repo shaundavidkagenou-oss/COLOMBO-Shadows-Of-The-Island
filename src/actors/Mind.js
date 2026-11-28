@@ -35,7 +35,7 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const clampR = (v, a, b) => (v < a ? a : v > b ? b : v);
 export function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 const VIOLENT = new Set(['gunshot', 'explosion', 'assault', 'threat', 'shot', 'punched', 'hitByCar', 'weapon']);
-const GATHER = new Set(['accident', 'crash', 'fight', 'arrest']);
+const GATHER = new Set(['accident', 'crash', 'fight', 'arrest', 'brawl', 'holdup']);
 
 // emotional push of each kind of event at its source (scaled by distance), how strongly it draws the curious, how much it
 // is worth remembering, and its severity (0 = background, 1 = disturbance, 2+ = danger)
@@ -347,6 +347,19 @@ export class MindSystem {
   aware(p, m, dist, now) {
     const C = this.C, P = C.player; if (!P || P.vehicle || P.indoor || !C.isRoutine(p.state)) return; const dx = P.x - p.x, dz = P.z - p.z, pd = Math.hypot(dx, dz); if (pd > 16) { m.stareT = 0; return; }
     const R = m.rel[this.hero]; const facing = (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / (pd || 1);
+    // ColomboLive viral heat: if a witness uploaded a clip of the player in this district (cleared by changing outfit or switching character),
+    // occasionally a passer-by recognizes them from their phone feed
+    if (C.viralUntil && C.t < C.viralUntil && C.viralDistrict && pd < 9.5 && facing > 0.35 && C.t > (C.viralRecogCd || 0) && C.t > (m.viralT || 0) && L.districtIdAt(p.x, p.z) === C.viralDistrict) {
+      m.viralT = C.t + 35 + this.rng.next() * 20;
+      if (this.rng.next() < 0.14 + 0.16 * m.tr[CUR]) {
+        C.viralRecogCd = C.t + 9 + this.rng.next() * 7;
+        this.stats.recog++; feel(m, SUS, 0.22); p.lookT = 2.4; p.lookAtPt = null;
+        p.ch.face.set(m.tr[FEARF] > 0.55 ? 'fear' : 'suspicious', 2.6);
+        if (this.rng.chance(0.6)) C.speak(p, 'viralRecognize', 1, 2.8);
+        if (m.tr[FEARF] > 0.65 && pd < 6) { p.lat = clampR((p.lat || 0) + ((dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw)) > 0 ? -0.65 : 0.65), -0.9, 0.9); }
+        return;
+      }
+    }
     if (R && (R.n > 0 || R.crimes > 0) && C.t > m.recogT && facing > -0.3) {
       m.recogT = C.t + 18 + this.rng.next() * 10; if (this.rng.next() < 0.45 + 0.45 * m.tr[INT]) { this.stats.recog++; R.last = now;
         if (R.fear > 0.55 && pd < 12) { feel(m, FEA, 0.4); const crime = R.crimes > 0 && m.tr[HON] > 0.55 && this.rng.chance(0.5); C.speak(p, crime ? 'recognizeBad' : 'wary', 1); if (crime) C.react(p, 'report', 7, { fleeDir: norm2(-dx, -dz) }); else C.react(p, 'flee', 3 + this.rng.next() * 2, { fleeDir: norm2(-dx, -dz), fleeSp: 2.8 + this.rng.next() }); this.stats.avoid++; return; }
@@ -374,13 +387,19 @@ export class MindSystem {
     const m = p.mind; if (!m) return null; const R = rel(m, this.hero), now = this.now(); R.n++; R.last = now; const C = this.C; let witnesses = 0;
     for (const o of C.peds) if (o !== p && o.mind && Math.abs(o.x - p.x) < 10 && Math.abs(o.z - p.z) < 10) witnesses++;
     switch (kind) {
-      case 'talk': feel(m, HAP, 0.08); R.like = clampR(R.like + 0.04 * (1 - R.like), -1, 1); remember(m, 'talked', this.hero, p.x, p.z, now, 0.15, 0.3); break;
+      case 'talk': feel(m, HAP, 0.08); R.like = clampR(R.like + 0.06 * (1 - R.like), -1, 1); remember(m, 'talked', this.hero, p.x, p.z, now, 0.15, 0.3); break;
+      case 'chat': feel(m, HAP, 0.12); feel(m, EXC, 0.08); R.like = clampR(R.like + 0.1 * (1 - R.like), -1, 1); remember(m, 'talked', this.hero, p.x, p.z, now, 0.25, 0.5); break;
+      case 'farewell': feel(m, HAP, 0.18); R.like = clampR(R.like + 0.15 * (1 - R.like), -1, 1); R.fear = clamp01(R.fear - 0.15); remember(m, 'befriended', this.hero, p.x, p.z, now, 0.45, 0.8); break;
       case 'wave': feel(m, HAP, 0.1); R.like = clampR(R.like + 0.05 * (1 - R.like), -1, 1); break;
       case 'photo': feel(m, EXC, 0.15); feel(m, HAP, 0.06); break;
       case 'insult': R.harass++; R.like = clampR(R.like - 0.22, -1, 1); feel(m, ANG, 0.35); feel(m, EMB, 0.15 + 0.05 * Math.min(4, witnesses)); remember(m, 'insulted', this.hero, p.x, p.z, now, 0.35 + 0.1 * R.harass, -0.6); break;
+      case 'provoke': R.harass++; R.like = clampR(R.like - 0.3, -1, 1); feel(m, ANG, 0.52); feel(m, FRU, 0.25); remember(m, 'provoked', this.hero, p.x, p.z, now, 0.5 + 0.1 * R.harass, -0.75); break;
+      case 'defuse': m.em[ANG] *= 0.35; m.em[FRU] *= 0.4; R.like = clampR(R.like + 0.12, -1, 1); remember(m, 'apologized', this.hero, p.x, p.z, now, 0.25, 0.25); break;
       case 'shove': R.harass++; R.like = clampR(R.like - 0.32, -1, 1); R.fear = clamp01(R.fear + 0.1); feel(m, ANG, 0.45); feel(m, EMB, 0.2 + 0.05 * Math.min(4, witnesses)); remember(m, 'shoved', this.hero, p.x, p.z, now, 0.45 + 0.1 * R.harass, -0.7); break;
       case 'punched': R.harass += 2; R.like = clampR(R.like - 0.5, -1, 1); R.fear = clamp01(R.fear + 0.3 * (0.5 + m.tr[FEARF])); feel(m, FEA, 0.4); feel(m, ANG, 0.4); remember(m, 'punched', this.hero, p.x, p.z, now, 0.75, -0.9); break;
       case 'threat': R.like = clampR(R.like - 0.4, -1, 1); R.fear = clamp01(R.fear + 0.45 * (0.5 + m.tr[FEARF])); feel(m, FEA, 0.7); feel(m, STR, 0.5); remember(m, 'threat', this.hero, p.x, p.z, now, 0.8, -1); break;
+      case 'robbed': R.crimes++; R.harass += 2; R.like = -1; R.fear = clamp01(R.fear + 0.75); feel(m, FEA, 0.85); feel(m, STR, 0.7); remember(m, 'robbed', this.hero, p.x, p.z, now, 0.95, -1); break;
+      case 'intimidated': R.harass++; R.like = clampR(R.like - 0.45, -1, 1); R.fear = clamp01(R.fear + 0.6); feel(m, FEA, 0.75); feel(m, STR, 0.55); remember(m, 'intimidated', this.hero, p.x, p.z, now, 0.8, -0.95); break;
       case 'hitByCar': R.like = clampR(R.like - 0.35, -1, 1); R.fear = clamp01(R.fear + 0.2); feel(m, ANG, 0.4); feel(m, FEA, 0.4); remember(m, 'hitByCar', this.hero, p.x, p.z, now, 0.7, -0.8); break;
       case 'crashed': R.like = clampR(R.like - 0.25, -1, 1); feel(m, ANG, 0.45); feel(m, FRU, 0.35); remember(m, 'crashed', this.hero, p.x, p.z, now, 0.55, -0.7); break;
       case 'helped': R.helped++; R.like = clampR(R.like + 0.55 * (1 - R.like), -1, 1); R.fear = clamp01(R.fear - 0.3); feel(m, HAP, 0.45); feel(m, FEA, -0.3); remember(m, 'helped', this.hero, p.x, p.z, now, 0.85, 1); break;

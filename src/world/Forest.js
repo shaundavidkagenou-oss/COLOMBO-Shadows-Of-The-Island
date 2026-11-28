@@ -52,11 +52,11 @@ export class Forest {
       let nv = 0, ni = 0; for (const g of grp.geos) { nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
       const mat = MAT[grp.mk] || MAT.leaves; const bm = new THREE.BatchedMesh(Math.max(1, grp.inst), Math.max(3, nv), Math.max(3, ni), mat);
       bm.name = 'forest:' + grp.key; bm.frustumCulled = false; bm.perObjectFrustumCulled = false; bm.sortObjects = false;
-      // 88th: flowers / fruit / nuts cast no shadow (sub-texel in the sun map); the leaf batches use the leaf-layout depth material
-      bm.userData.ci = grp.cat === 'tree' ? 0 : 1; bm.castShadow = grp.cat === 'tree' && grp.mk !== 'bloom'; bm.receiveShadow = true;
-      // shadow LOD: the leaf-mesh crowns cast their medium LOD while near (band ≤ 1: leaf-sized dapples under the tree), the far
-      // LOD beyond; everything else (and the cards build) its light geometry, as before
-      const leafMesh = grp.mk === 'leaves' && MAT.leaves.userData.leafMesh; bm.userData.shNear = leafMesh ? 1 : 2;
+      // 88th: flowers / fruit / nuts cast no shadow (sub-texel in the sun map) and cull with near ground-plant band (ci=1)
+      bm.userData.ci = grp.cat === 'tree' && grp.mk !== 'bloom' ? 0 : 1; bm.castShadow = grp.cat === 'tree' && grp.mk !== 'bloom'; bm.receiveShadow = true;
+      // shadow LOD: the leaf-mesh crowns cast their medium LOD on Ultra while near (band ≤ 1: leaf-sized dapples under the tree),
+      // and the light crown LOD (band 2, ~4× fewer triangles, full silhouette) on High/Medium/Low and beyond
+      const leafMesh = grp.mk === 'leaves' && MAT.leaves.userData.leafMesh; bm.userData.leafMesh = !!leafMesh; bm.userData.shNear = leafMesh && quality === 'ultra' ? 1 : 2;
       if (leafMesh) bm.customDepthMaterial = leafMeshDepth();
       else if (grp.mk === 'leaves' && MAT.leaves.map && MAT.leaves.map === MAT.leavesSmall.map) bm.customDepthMaterial = leafDepthMaterial();
       grp.gid = grp.geos.map((g) => bm.addGeometry(g)); grp.bm = bm; grp.n = this.meshes.length; this.meshes.push(bm); this.group.add(bm);
@@ -77,9 +77,9 @@ export class Forest {
       _p.set(t.x, (t.y ?? LAND_Y) - 0.05, t.z); _q.setFromEuler(_e.set(0, ry, 0)); _s.set(s * sq, s * (t.sy ?? rs), s * sq); _m.compose(_p, _q, _s);
       const hue = rng.range(-0.025, 0.03), lit = rng.range(0.9, 1.1); // each plant a slightly different green
       const H = heightOf(cat, t.type) * s * (t.sy ?? rs); // the plant's own height → wind stiffness / frequency (Vegetation.js), in the batch colour's alpha
-      for (const pt of parts) { const bm = pt.grp.bm; const g0 = pt.g.find((q) => q >= 0); if (g0 === undefined) continue; const id = bm.addInstance(pt.grp.gid[g0]); bm.setMatrixAt(id, _m);
+      for (const pt of parts) { const bm = pt.grp.bm, pCi = bm.userData.ci; const g0 = pt.g.find((q) => q >= 0); if (g0 === undefined) continue; const id = bm.addInstance(pt.grp.gid[g0]); bm.setMatrixAt(id, _m);
         if (FOLIAGE.has(pt.grp.mk) && pt.grp.mk !== 'bloom') _c.setRGB(lit * (1 + hue), lit, lit * (1 - hue)); else _c.setRGB(lit, lit, lit); bm.setColorAt(id, _c); bm._colorsTexture.image.data[id * 4 + 3] = H;
-        cell.lists[ci].push(pt.grp.n, id, ...pt.g.map((q) => (q >= 0 ? pt.grp.gid[q] : -1))); cell.xz[ci].push(pt.grp.n, t.x, t.z); this.stats.instances++; }
+        cell.lists[pCi].push(pt.grp.n, id, ...pt.g.map((q) => (q >= 0 ? pt.grp.gid[q] : -1))); cell.xz[pCi].push(pt.grp.n, t.x, t.z); this.stats.instances++; }
       cell.top = Math.max(cell.top || 0, ci === 0 ? 16 * s : 2);
     }
     // per cell, per category: entries grouped by mesh → typed arrays [mesh][inst, hi, lo, …]
@@ -91,9 +91,10 @@ export class Forest {
   }
   // LOD bands per category (trees, ground plants): [near → medium, medium → far, far → very far] metres. The middle value is
   // the old single hi / lo distance (LOD[ci]), so two-level parts switch exactly where they did.
-  setQuality(q) { this.R = q === 'low' ? [520, 90] : q === 'medium' ? [600, 130] : q === 'ultra' ? [760, 200] : [660, 160]; this.LOD = q === 'low' ? [80, 30] : q === 'ultra' ? [150, 60] : [110, 45];
-    this.LB = q === 'low' ? [[22, 80, 200], [10, 30, 60]] : q === 'medium' ? [[35, 110, 250], [14, 45, 90]] : q === 'ultra' ? [[60, 150, 380], [24, 60, 130]] : [[45, 110, 300], [18, 45, 100]];
-    this.LB2 = this.LB.map((b) => b.map((d) => d * d)); this.fx = 1e9; }
+  setQuality(q) { this.R = q === 'low' ? [520, 90] : q === 'medium' ? [600, 130] : q === 'ultra' ? [760, 200] : [660, 150]; this.LOD = q === 'low' ? [80, 30] : q === 'ultra' ? [150, 60] : [100, 42];
+    this.LB = q === 'low' ? [[22, 80, 200], [10, 30, 60]] : q === 'medium' ? [[35, 110, 250], [14, 45, 90]] : q === 'ultra' ? [[60, 150, 380], [24, 60, 130]] : [[40, 100, 240], [16, 42, 95]];
+    this.LB2 = this.LB.map((b) => b.map((d) => d * d)); this.fx = 1e9;
+    if (this.meshes) for (const bm of this.meshes) if (bm.userData.leafMesh) bm.userData.shNear = q === 'ultra' ? 1 : 2; }
   // the cells of one 200 m world chunk (Satellite tiles render chunks the player is nowhere near)
   chunkHandle(x0, z0, size) { const self = this; const list = this.cellList.filter((c) => c.x >= x0 && c.x < x0 + size && c.z >= z0 && c.z < z0 + size); let on = false;
     return { get visible() { return on; }, set visible(v) { on = !!v; for (const c of list) { if (on) self.forced.add(c); else self.forced.delete(c); } self.cache.clear(); } }; }
@@ -125,11 +126,13 @@ export class Forest {
   // rebuild one batched mesh's multi-draw list for this camera
   // shadow passes draw the light LOD of every tree (same crown clumps and silhouette, ~4 × fewer triangles; 88th)
   fill(bm, cam, shadow = false) {
-    const ci = bm.userData.ci; const n0 = this.meshes.indexOf(bm); const cells = this.visible(cam, ci);
+    const ci = bm.userData.ci; const isRefl = cam && cam.name === 'waterRefl';
+    if (isRefl && ci === 1) { bm._multiDrawCount = 0; commitIndirect(bm, cam, 0); bm._visibilityChanged = false; return; } // ground shrubs/weeds are invisible in water reflections
+    const n0 = this.meshes.indexOf(bm); const cells = this.visible(cam, ci);
     const starts = bm._multiDrawStarts, counts = bm._multiDrawCounts, ind = beginIndirect(bm), GI = bm._geometryInfo; const idx = bm.geometry.getIndex(); const bpe = idx ? idx.array.BYTES_PER_ELEMENT : 1;
     let n = 0; const forcedLo = this.forced.size > 0;
     const B2 = this.LB2[ci], px = this.cpx, pz = this.cpz; const shN = bm.userData.shNear || 2;
-    for (const c of cells) { const a = c.arr[ci][n0]; if (!a) continue; const forcedL = forcedLo && this.forced.has(c); const mode = forcedL ? 3 : c.lod[ci]; const xz = mode < 0 ? c.pos[ci][n0] : null;
+    for (const c of cells) { const a = c.arr[ci][n0]; if (!a) continue; const forcedL = isRefl || (forcedLo && this.forced.has(c)); const mode = forcedL ? 3 : c.lod[ci]; const xz = mode < 0 ? c.pos[ci][n0] : null;
       for (let k = 0, q = 0; k < a.length; k += 5, q += 2) {
         let b = mode; if (xz) { const dx = xz[q] - px, dz = xz[q + 1] - pz, d2 = dx * dx + dz * dz; b = d2 < B2[0] ? 0 : d2 < B2[1] ? 1 : d2 < B2[2] ? 2 : 3; }
         let g; if (shadow) { const s = b <= 1 ? shN : 2; g = a[k + 1 + s]; if (g < 0 && s === 2) g = a[k + 2]; } // shadow: its LOD, else the medium one (flowers), never the near-only twigs

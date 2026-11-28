@@ -30,7 +30,7 @@ const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3],
   tuktuk: [[0, 3], [1, 4], [2, 3]], bike: [[0, 6], [1, 4]], lorry: [[0, 3], [1, 2]], bus: [[6, 1], [10, 2], [16, 2], [22, 1]], pbus: [[8, 1], [14, 2], [20, 2], [26, 1]] };
 export const SPOT_FAR = 130, SPOT_SEEN = 145, SPOT_MAT = 175, SPOT_CAP = 40, SPOT_OCC = 0.72; // parking: re-decide only beyond SPOT_FAR; build in view only beyond SPOT_SEEN
 export const TOW_DIST = 150, TOW_TIME = 300; // a vehicle the player left behind is towed after 5 min with the player beyond 150 m
-const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near the player (LOD); total cap
+const PAX_NEAR = 52, PAX_FAR = 68, PAX_CAP = 38; // passengers exist only near the player (LOD); total cap (tuned for 60+ FPS)
 
 const V0 = [13.5, 12, 9, 6.5];
 const CAT_W = Object.fromEntries(Object.entries(TRAFFIC_W).map(([k, o]) => [k, Object.entries(o)]));
@@ -297,10 +297,10 @@ export class Traffic {
     // passengers are built one per frame (a full bus at once was 20 character builds in one frame: a visible hitch);
     // this starts at 90 m, so the seats filling over a few frames is not noticeable
     if (v.paxPlan && v.pax.length < v.paxPlan.length && d < PAX_NEAR && this.paxCount + v.paxPlan.length - v.pax.length <= PAX_CAP && !v.disembarking) {
-      if (this.paxBudget > 0) { this.paxBudget--; const p = v.paxPlan[v.pax.length]; const ch = new Character(p.spec); seatCharacter(ch, v, seats[p.si], p.mode); ch.mesh.castShadow = d < 40; v.pax.push(ch); this.paxCount++; }
+      if (this.paxBudget > 0) { this.paxBudget--; const p = v.paxPlan[v.pax.length]; const ch = new Character(p.spec); seatCharacter(ch, v, seats[p.si], p.mode); ch.mesh.castShadow = false; v.pax.push(ch); this.paxCount++; }
     } else if (v.pax && v.pax.length && d > PAX_FAR && !v.disembarking && !v.police) this.dropPax(v);
-    // pose update rate: every frame near, 5 Hz mid-range, frozen far away (the seated pose stays valid)
-    const rate = d < 35 ? 0 : d < 90 ? 0.2 : Infinity; v.animAcc = (v.animAcc || 0) + dt; if (v.animAcc < rate) return; const step = v.animAcc; v.animAcc = 0;
+    // pose update rate: every frame near, 4 Hz mid-range, frozen far away (the seated pose stays valid)
+    const rate = d < 26 ? 0 : d < 58 ? 0.25 : Infinity; v.animAcc = (v.animAcc || 0) + dt; if (v.animAcc < rate) return; const step = v.animAcc; v.animAcc = 0;
     const steer = v.steer / (v.T.steer || 0.5); const acc = (v.speed - (v.lastSpeed ?? v.speed)) / Math.max(step, 1e-3); v.lastSpeed = v.speed;
     const upd = (ch) => { const A = ch.anim; A.steer = steer; A.vehSpeed = v.speed; A.brakeLean = clamp(-acc * 0.012, -0.06, 0.08); A.cornerLean = clamp(-steer * v.speed * 0.004, -0.06, 0.06); A.update(Math.min(step, 0.25), 0); };
     if (v.driverChar) upd(v.driverChar); if (v.pax) for (const ch of v.pax) upd(ch);
@@ -351,7 +351,67 @@ export class Traffic {
       this.disembark(v, 'confront', { x: P.x, z: P.z }); v.pax = keep; v.paxPlan = keepPlan; this.rageStats.out++;
     }
   }
-  // the stand point beside the driver's door, in world space (Crowd 'toCar' walks there)
+  // kerb-side passenger door / bus stairwell in world space (left-hand traffic: kerb is +x in vehicle local space)
+  paxBoardPoint(v) {
+    if (!v || !v.mesh) return null;
+    const seats = v.mesh.userData.seats || []; const used = new Set((v.paxPlan || []).map((q) => q.si));
+    const si = seats.findIndex((s, i) => !s.driver && !used.has(i)); if (si < 0) return null;
+    const bus = v.type === 'bus' || v.type === 'pbus';
+    const lx = v.T.wid / 2 + 0.58, lz = bus ? Math.min(v.T.len * 0.28, 2.2) : (seats[si].z || 0);
+    v.mesh.updateMatrixWorld(); return (v._pbpW || (v._pbpW = new THREE.Vector3())).set(lx, 0, lz).applyMatrix4(v.mesh.matrixWorld);
+  }
+  hailStop(v, dur = 6.5) {
+    if (!v || !v.ai || v.ai.emergency || v.ai.chase || v.police || v.player || v.disembarking) return false;
+    const seats = v.mesh.userData.seats || []; const used = (v.paxPlan || []).length;
+    if (seats.filter((s) => !s.driver).length <= used) return false;
+    v.hailHold = Math.max(v.hailHold || 0, dur); v.hold = true; v.ind = -1;
+    if (v.type === 'bus' || v.type === 'pbus') openBusDoor(v, Math.min(v.T.len * 0.28, 2.2), true);
+    return true;
+  }
+  boardTransit(v, p) {
+    if (!this.crowd || !v || !v.mesh || !v.mesh.parent || v.player || v.disembarking) return false;
+    const seats = v.mesh.userData.seats || []; const used = new Set((v.paxPlan || []).map((q) => q.si));
+    const si = seats.findIndex((s, i) => !s.driver && !used.has(i)); if (si < 0) return false;
+    const ch = p.ch; this.crowd.release(p); ch.root.parent?.remove(ch.root);
+    seatCharacter(ch, v, seats[si], 'lap'); ch.mesh.castShadow = false;
+    (v.pax || (v.pax = [])).push(ch); (v.paxPlan || (v.paxPlan = [])).push({ si, spec: ch.spec, mode: 'lap' }); this.paxCount++;
+    v.hailHold = 0; v.hold = false; v.ind = 0; v.transitDropT = 24 + this.rng.next() * 28;
+    if (v.type === 'bus' || v.type === 'pbus') openBusDoor(v, Math.min(v.T.len * 0.28, 2.2), false, 0.4);
+    this.transitStats = this.transitStats || { boarded: 0, alighted: 0, unparked: 0 }; this.transitStats.boarded++;
+    return true;
+  }
+  unparkDriveOff(v) {
+    if (!v || !v.parked || v.player || v.dead || v.towedBy) return false;
+    const ln = this.laneNear(v.x, v.z, v.yaw, 20); if (!ln) return false;
+    if (v.spot) { this.vacate(v.spot); v.spot = null; } v.left = null;
+    if (!this.adoptAI(v, ln, { place: false })) return false;
+    v.ai.rejoin = true; v.ai.rjT = 0; v.ind = 1; v.speed = 1.2;
+    this.transitStats = this.transitStats || { boarded: 0, alighted: 0, unparked: 0 }; this.transitStats.unparked++;
+    return true;
+  }
+  updateTransitStops(dt) {
+    for (const v of this.vehicles) {
+      if (v.hailHold > 0) { v.hailHold -= dt; if (v.hailHold > 0) v.hold = true; else { v.hailHold = 0; v.hold = false; v.ind = 0; if (v.type === 'bus' || v.type === 'pbus') openBusDoor(v, Math.min(v.T.len * 0.28, 2.2), false, 0.5); } }
+      if (v.transitDropT > 0 && v.ai && !v.ai.chase && !v.ai.emergency && !v.disembarking) {
+        v.transitDropT -= dt;
+        if (v.transitDropT <= 2.2) { v.hold = true; v.ind = -1; }
+        if (v.transitDropT <= 0 && v.speed < 0.35) {
+          v.transitDropT = 0; v.ind = 0;
+          if (v.type === 'tuktuk' && v.pax && v.pax.length) { v.hailHold = 3.2; this.disembark(v, 'calm'); if (this.transitStats) this.transitStats.alighted++; }
+          else if ((v.type === 'bus' || v.type === 'pbus') && v.pax && v.pax.length) {
+            // alight 1–2 passengers at the next kerb stop rather than emptying the whole bus
+            const seats = v.mesh.userData.seats || []; const nOut = Math.min(v.pax.length, 1 + (this.rng.chance(0.4) ? 1 : 0));
+            const outPax = v.pax.splice(v.pax.length - nOut, nOut), outPlan = v.paxPlan.splice(v.paxPlan.length - nOut, nOut);
+            this.paxCount -= outPax.length; v.paxReason = 'calm'; v.paxFrom = null;
+            v.disembarking = outPax.map((ch, i) => ({ ch, seat: seats[outPlan[i].si], P: busExitPath(v, seats[outPlan[i].si]), v, t: -i * 1.1 }));
+            for (const z of new Set(v.disembarking.map((o) => o.P.dz))) openBusDoor(v, z, true);
+            if (!this.leaving.includes(v)) this.leaving.push(v);
+            v.hailHold = 4.5; if (this.transitStats) this.transitStats.alighted += outPax.length;
+          } else v.hold = false;
+        }
+      }
+    }
+  }
   boardPoint(v, ch = null) {
     const seat = v.driverSeat(); if (!seat) return null; if (v.rbfSeat !== seat && ch) { v.rbfSeat = seat; v.rbf = npcBoardSetup(v, seat, ch.anim); }
     const e = v.rbf ? v.rbf.H0 : seat.exit || [Math.sign(seat.x || 1) * (v.T.wid / 2 + 0.6), seat.z]; v.mesh.updateMatrixWorld(); const w = (v.rbpW || (v.rbpW = new THREE.Vector3())).set(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return w;
@@ -367,7 +427,7 @@ export class Traffic {
       const o = this.reboarding[i], v = o.v, A = o.ch.anim, bf = o.bf; o.t += dt;
       if (!v.mesh.parent || v.player || v.driverChar) { // the car is gone / taken: he stays on foot
         this.reboarding.splice(i, 1); o.ch.root.parent?.remove(o.ch.root); A.board = null; A.standUp(); o.ch.root.rotation.set(0, 0, 0); v.hold = false; if (this.crowd) this.crowd.adopt(o.ch, o.x, o.z, o.yaw, 'calm'); else o.ch.dispose(); continue; }
-      if (!bf) { if (o.t > 0.4) { this.reboarding.splice(i, 1); o.ch.root.parent?.remove(o.ch.root); seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; v.hold = false; this.rageStats.back++; } continue; }
+      if (!bf) { if (o.t > 0.4) { this.reboarding.splice(i, 1); o.ch.root.parent?.remove(o.ch.root); seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; v.hold = false; if (v.parked && !v.ai) this.unparkDriveOff(v); this.rageStats.back++; } continue; }
       if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); }
       if (!o.boarding) {
         v.mesh.updateMatrixWorld(); const hw = (o.hw || (o.hw = new THREE.Vector3())).set(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - o.x, dz = hw.z - o.z, dd = Math.hypot(dx, dz);
@@ -376,7 +436,7 @@ export class Traffic {
         if ((dd < 0.03 && Math.abs(dy) < 0.08 && (!bf.door || bf.door.ang > 0.85)) || o.t > 3) { o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; o.t = 0; A.set(null); A.standUp(); A.duck = 0; }
         else continue; }
       const k = Math.min(1, Math.max(0, o.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, this.collision), 0, Math.min(1, o.t / 0.25)); A.update(dt, 0, 0);
-      if (k >= 1) { A.board = null; seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; if (bf.door) shutDoorLater(v, bf.door, 0.05); v.hold = false; this.reboarding.splice(i, 1); this.rageStats.back++; }
+      if (k >= 1) { A.board = null; seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; if (bf.door) shutDoorLater(v, bf.door, 0.05); v.hold = false; if (v.parked && !v.ai) this.unparkDriveOff(v); this.reboarding.splice(i, 1); this.rageStats.back++; }
     }
   }
   // hand a passenger who has got out over to the crowd (world position / heading from his root)
@@ -386,7 +446,9 @@ export class Traffic {
     r.parent?.remove(r); r.rotation.set(0, 0, 0); o.done = true;
     if (o.ch.onAlight) { const f = o.ch.onAlight; o.ch.onAlight = null; f(p, yw); return; } // 73rd: someone with somewhere to be (bank staff arriving for work) — not handed to the crowd
     if (this.crowd) { const ped = this.crowd.adopt(o.ch, p.x, p.z, yw, v.paxReason, v.paxFrom);
-      if (ped && v.rageDriver === o.ch) { v.rageDriver = null; ped.homeCar = v; v.awayDriver = ped; this.crowd.minds.playerAct(ped, 'crashed'); ped.timer = Math.max(ped.timer || 0, 5 + this.rng.next() * 4); ped.talkCd = 0; this.crowd.speak(ped, 'roadRage', 2, 2.5); } } else o.ch.dispose();
+      if (ped && v.rageDriver === o.ch) { v.rageDriver = null; ped.homeCar = v; v.awayDriver = ped; this.crowd.minds.playerAct(ped, 'crashed'); ped.timer = Math.max(ped.timer || 0, 5 + this.rng.next() * 4); ped.talkCd = 0; this.crowd.speak(ped, 'roadRage', 2, 2.5); }
+      else if (ped && v.parkDriver === o.ch) { v.parkDriver = null; ped.homeCar = v; v.awayDriver = ped; ped.errandT = 42 + this.rng.next() * 55; }
+    } else o.ch.dispose();
   }
   updateDisembark(dt) {
     for (let i = this.leaving.length - 1; i >= 0; i--) {
@@ -452,7 +514,7 @@ export class Traffic {
     this.updateArrivals(dt, focus);
     this.paxBudget = 1; for (const v of all) if (v.driverChar || (v.pax && v.pax.length) || (v.paxPlan && v.paxPlan.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
-    this.updateDisembark(dt); if (this.crowd && this.crowd.traffic !== this) this.crowd.traffic = this; if (this.raging.length) this.updateRage(dt); if (this.reboarding.length) this.updateReboard(dt);
+    this.updateDisembark(dt); this.updateTransitStops(dt); if (this.crowd && this.crowd.traffic !== this) this.crowd.traffic = this; if (this.raging.length) this.updateRage(dt); if (this.reboarding.length) this.updateReboard(dt);
   }
   reserve(nid, vid) { const r = this.res.get(nid); if (r) { r.id = vid; r.t = this.simTime; } else this.res.set(nid, { id: vid, t: this.simTime }); } // junction reservation, updated in place (was a new object per car per frame)
   step(v, dt, all, peds, playerV, player) {
@@ -783,8 +845,8 @@ export class Traffic {
     const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const sp = o.spot;
     v.ai = null; v.speed = 0; v.brake = false; v.steer = 0; v.lights = false; v.place(sp.x, sp.z, sp.yaw); v.parked = true; if (v.driverChar || (v.pax && v.pax.length)) v.standLater = true; else parkOnStand(v); v.spot = sp; this.parked.push(v); this.parkedSet.add(sp);
     if (st) { st.claim = null; st.occ = true; st.until = -1; st.look = { type: v.type, seed: v.seed }; }
-    if (v.driverChar) { const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const n = (v.pax || []).length; // the driver leaves by his own door, first
-      v.pax = [v.driverChar, ...(v.pax || [])]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }, ...(v.paxPlan || []).slice(0, n)]; v.driverChar = null; this.paxCount++; }
+    if (v.driverChar) { const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const n = (v.pax || []).length; // the driver leaves by his own door, first (and remembers his car so he can return after his errand)
+      v.parkDriver = v.driverChar; v.pax = [v.driverChar, ...(v.pax || [])]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }, ...(v.paxPlan || []).slice(0, n)]; v.driverChar = null; this.paxCount++; }
     this.disembark(v, 'calm'); if (this.parkStats) this.parkStats.parked++;
   }
   // is a point in (or right next to) the camera's view? (the camera sits a few metres behind the focus)

@@ -12,8 +12,8 @@ export const DEFAULT_BINDINGS = {
 // bankTex / bankFX (78th): the Ceylon Meridian Bank's texture size and its lighting pass level (BankTex.js, BankFX.js)
 export const QUALITY_PRESETS = {
   low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, cine: 0, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1, bankTex: 1024, bankFX: 0 },
-  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, cine: 1, drawDist: 950,  crowd: 110, traffic: 34, detailRadius: 2, bankTex: 2048, bankFX: 1 },
-  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, cine: 2, drawDist: 1400, crowd: 170, traffic: 46, detailRadius: 2, bankTex: 2048, bankFX: 2 },
+  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, cine: 1, drawDist: 950,  crowd: 105, traffic: 32, detailRadius: 2, bankTex: 2048, bankFX: 1 },
+  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, cine: 2, drawDist: 1350, crowd: 150, traffic: 42, detailRadius: 2, bankTex: 2048, bankFX: 2 },
   ultra:  { pixelRatio: 1.5,  shadows: true,  shadowRes: 4096, bloom: true,  ao: true,  cine: 3, drawDist: 1900, crowd: 240, traffic: 60, detailRadius: 3, bankTex: 2048, bankFX: 3 },
 };
 const DEFAULTS = {
@@ -35,16 +35,25 @@ const DEFAULTS = {
 };
 class SettingsStore {
   constructor() {
-    this.v = structuredClone(DEFAULTS);
+    this.v = structuredClone(DEFAULTS); this.hasSaved = false;
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { const p = JSON.parse(raw); Object.assign(this.v, p); const b = { ...(p.bindings || {}) }; if (!b.cover && b.insult === 'KeyQ') delete b.insult; /* 73rd: Q is cover now (insult moved to N) — saved settings from before keep their other keys */ this.v.bindings = { ...DEFAULT_BINDINGS, ...b }; }
+      if (raw) { this.hasSaved = true; const p = JSON.parse(raw); Object.assign(this.v, p); const b = { ...(p.bindings || {}) }; if (!b.cover && b.insult === 'KeyQ') delete b.insult; /* 73rd: Q is cover now (insult moved to N) — saved settings from before keep their other keys */ this.v.bindings = { ...DEFAULT_BINDINGS, ...b }; }
     } catch (e) { console.warn('settings load failed', e); }
   }
   get(k) { return this.v[k]; }
   set(k, val) { this.v[k] = val; this.save(); bus.emit('settings', k, val); }
-  save() { try { localStorage.setItem(KEY, JSON.stringify(this.v)); } catch (e) {} }
+  save() { try { localStorage.setItem(KEY, JSON.stringify(this.v)); this.hasSaved = true; } catch (e) {} }
   reset() { this.v = structuredClone(DEFAULTS); this.save(); bus.emit('settings', '*'); }
+  // Auto-tune for detected GPU tier (runs automatically on first boot when no saved settings exist, or on demand from Graphics settings)
+  autoTune(info, force = false) {
+    if (!info || (this.hasSaved && !force)) return false;
+    if (info.tier === 'low') { this.v.quality = 'low'; this.v.upscale = 'sgsr80'; this.v.dynamicRes = true; }
+    else if (info.tier === 'mid') { this.v.quality = 'high'; this.v.upscale = 'sgsr85'; this.v.dynamicRes = true; }
+    else { this.v.quality = 'high'; this.v.upscale = 'off'; this.v.dynamicRes = true; }
+    if (force) this.save();
+    bus.emit('settings', '*'); return true;
+  }
   get preset() { return QUALITY_PRESETS[this.v.quality] || QUALITY_PRESETS.high; }
 }
 export const Settings = new SettingsStore();

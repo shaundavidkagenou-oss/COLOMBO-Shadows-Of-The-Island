@@ -1266,17 +1266,16 @@ export class Character {
     // distance LOD: beyond ~11 m (a face is then ~15 px tall) the same head at ~1/3 of the triangles; one material, one shared
     // set of morph influences, so expressions / blinks carry over seamlessly
     const lo = new THREE.Mesh(npcHeadGeometry(F.v, o, 1), mat); lo.name = 'npcHeadLo'; lo.morphTargetInfluences = m.morphTargetInfluences;
-    const lod = new THREE.LOD(); lod.name = 'npcHeadLOD'; lod.addLevel(m, 0); lod.addLevel(lo, 11, 0.12);
+    const lod = new THREE.LOD(); lod.name = 'npcHeadLOD'; lod.addLevel(m, 0); lod.addLevel(lo, 9.5, 0.12);
     const jh = joints(sp).head; lod.position.set(F.o[0] - jh[0], F.o[1] - jh[1], F.o[2] - jh[2]); lod.scale.setScalar(F.k);
-    // shadows: the near head casts exactly when the body does (the crowd turns distant shadows off). The far head casts
-    // none — the body's own hair / scarf shell already gives the crown its shadow, and a distant face profile in a shadow is
-    // invisible — which keeps a distant crowd head at one extra draw instead of two
+    // shadows: the near head casts only within ~9.5 m when the body does (lo is active beyond 9.5 m and casts none — the body's
+    // crown/hair shell already gives the head shadow, keeping every pedestrian >9.5 m at zero extra shadow-pass draws)
     const body = this.mesh; m.receiveShadow = false; lo.receiveShadow = false; lo.castShadow = false;
     Object.defineProperty(m, 'castShadow', { get: () => body.castShadow, set() {}, configurable: true });
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); if (!this.disposed) { if (this.varGeos) { for (const g of this.varGeos) releaseVariant(g); this.varGeos = null; } if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
+  dispose() { LIVE.delete(this); if (!this.disposed) { if (this.varGeos) { for (const g of this.varGeos) releaseVariant(g); this.varGeos = null; } if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) if (!m.userData?.pooledHead) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
   // 73rd: one gauntlet off (a traffic officer flings it down before he rides after you): this character's body geometry —
   // hi and lo detail — gets its own colour attribute with the glove / cuff on that hand in skin colour; every other attribute
   // stays shared with the cached look (no new buffers apart from the colours, no new material, no shader work)

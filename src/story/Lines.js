@@ -146,6 +146,132 @@ export const LINES = {
     { en: 'Look at my car! Who is going to pay for this?' },
     { en: 'Where did you get your licence, men?' },
   ],
+  // ---- GTA VI-tier multi-turn Greet / Antagonize / Defuse / Hold-Up / ColomboLive / Street awareness
+  playerGreet: [
+    { si: 'කොහොමද මචං, සැපෙන්ද?', tr: 'How is it going, machan, all well?' },
+    { ta: 'வணக்கம், எப்படி இருக்கீங்க?', tr: 'Hello, how are you doing?' },
+    { en: 'Hey, how is your day going?' },
+    { en: 'Morning! Hot enough for you today?' },
+  ],
+  playerChat: [
+    { en: 'Streets are busy today, ah?' },
+    { si: 'මේ පැත්තේ අලුත් ආරංචි මොනවද?', tr: 'Any news around this side today?' },
+    { en: 'Traffic from Kollupitiya to Fort is something else.' },
+  ],
+  playerBye: [
+    { si: 'එහෙනම් ගිහින් එන්නම්!', tr: 'Alright then, see you around!' },
+    { ta: 'சரி, போயிட்டு வரேன்!', tr: 'Alright, I will head off!' },
+    { en: 'Take it easy, machan. Catch you later.' },
+  ],
+  smallTalk: [
+    { si: 'රස්නෙයි නේද අද? තැඹිලි එකක්වත් බොන්න ඕනේ.', tr: "Hot today, isn't it? Need a king coconut." },
+    { ta: 'இன்னைக்கு பயங்கர வெயில், ஆனா காற்று நல்லா இருக்கு.', tr: 'Terrible sun today, at least there is a breeze.' },
+    { en: 'Same old Colombo hustle, men. Work, bus, home.' },
+    { en: 'Check ColomboLive on your phone — half the city is posting clips today.' },
+  ],
+  farewell: [
+    { si: 'හරි මචං, පරිස්සමින් යන්න!', tr: 'Right machan, go safely!' },
+    { ta: 'சரி, பத்திரமா போங்க!', tr: 'Alright, go safely!' },
+    { en: 'Good talking to you! Take care, ah.' },
+  ],
+  playerAntagonize: [
+    { en: 'Get out of the way, clown. Whole pavement is yours?' },
+    { si: 'මොකද බලන්නේ? පාර බලාගෙන යනවා!', tr: 'What are you staring at? Watch the road and walk!' },
+    { en: 'Keep staring like that and see what happens.' },
+  ],
+  playerProvoke: [
+    { en: 'Yeah, I am talking to you. Going to do something about it?' },
+    { si: 'කට විතරද? එනවා බලන්න!', tr: 'All talk, is it? Come on then!' },
+    { en: 'Walk away while you still can, hero.' },
+  ],
+  playerDefuse: [
+    { si: 'සමාවෙන්න මචං, වැරදීමක් වුණේ.', tr: 'Sorry machan, my mistake.' },
+    { ta: 'மன்னிச்சிடுங்க, தெரியாம நடந்திடுச்சு.', tr: 'Sorry about that, it was an accident.' },
+    { en: 'Easy, easy — my bad. No trouble.' },
+  ],
+  antagonizeReply: [
+    { si: 'මොකක්ද කිව්වේ? කට පරිස්සම් කරගන්න!', tr: 'What did you say? Watch your mouth!' },
+    { ta: 'என்ன சொன்னீங்க? மரியாதையா பேசுங்க!', tr: 'What did you say? Speak with respect!' },
+    { en: 'Excuse me? Who do you think you are talking to?' },
+    { en: 'Go pick a fight somewhere else, men.' },
+  ],
+  provokeReply: [
+    { si: 'ආයෙත් එක වචනයක් කිව්වොත් බලාගන්නම්!', tr: 'Say one more word and you will see!' },
+    { ta: 'இன்னொரு வார்த்தை பேசினா நடக்கிறதே வேற!', tr: 'One more word and see what happens!' },
+    { en: 'Right, step closer and try that again!' },
+    { en: 'You really want trouble on this street?' },
+  ],
+  defused: [
+    { si: 'හරි හරි, බලාගෙන යන්න ඊළඟ සැරේ.', tr: 'Alright, alright, watch where you walk next time.' },
+    { ta: 'சரி விடுங்க, பார்த்து போங்க.', tr: 'Alright leave it, watch your step.' },
+    { en: 'Fine. Just watch yourself next time, okay?' },
+    { en: 'Alright, forget it. No harm done.' },
+  ],
+  robDemand: [
+    { si: 'සද්ද කරන්න එපා! සල්ලි ටික දීපන්!', tr: 'Keep quiet! Hand over the cash!' },
+    { en: 'Empty your pockets. Right now, no heroics.' },
+    { en: 'Wallet. Cash. Fast — and nobody gets hurt.' },
+  ],
+  robPlea: [
+    { si: 'අනේ ගහන්න එපා! මේ තියෙන ඔක්කොම ගන්න!', tr: "Please don't hurt me! Take everything I have!" },
+    { ta: 'அடிக்காதீங்க! இந்தாங்க, பணத்தை எடுத்துக்கோங்க!', tr: "Don't hit me! Here, take the money!" },
+    { en: 'Okay, okay! Here — take the cash, just let me go!' },
+  ],
+  robRefuse: [
+    { si: 'සල්ලි? හීනෙන් තමයි!', tr: 'Money? In your dreams!' },
+    { en: 'You picked the wrong person today, pal!' },
+  ],
+  playerIntimidate: [
+    { en: 'Put that phone away and run. Now!' },
+    { si: 'ෆෝන් එක තියලා දුවපන් දැන්ම!', tr: 'Drop the phone and run right now!' },
+    { en: 'Delete that clip and start running!' },
+  ],
+  filming: [
+    { si: 'මේ බලන්න, මම ලයිව් දානවා ColomboLive එකට!', tr: 'Look at this, I am putting this live on ColomboLive!' },
+    { ta: 'இத பாருங்க, வீடியோ எடுக்கிறேன்!', tr: 'Look at this, I am recording everything!' },
+    { en: 'Got this whole thing on camera! Going straight on ColomboLive!' },
+    { en: 'Wait till ColomboLive sees this lunatic!' },
+  ],
+  stopFilmReply: [
+    { si: 'හරි හරි! මම ඩිලීට් කළා, ගහන්න එපා!', tr: "Okay, okay! I deleted it, don't hit me!" },
+    { en: 'Okay! Camera is off, camera is off! I am leaving!' },
+  ],
+  viralRecognize: [
+    { si: 'ඒයි, මේ අර ColomboLive වීඩියෝ එකේ හිටපු කෙනා නේද?', tr: "Hey, isn't that the person from the ColomboLive clip?" },
+    { ta: 'ஏய், போன் வீடியோல பார்த்த ஆள் தானே இது?', tr: 'Hey, is that not the person from the viral video?' },
+    { en: 'Wait — that is the guy trending on ColomboLive right now!' },
+    { en: 'Careful, I just saw him on my phone feed five minutes ago.' },
+  ],
+  cliqueBackUp: [
+    { si: 'ඒයි! මගේ යාළුවට අත තියන්න එපා!', tr: "Hey! Don't lay a hand on my friend!" },
+    { ta: 'டேய்! என் நண்பன் மேல கைய வைக்காத!', tr: "Hey! Don't touch my friend!" },
+    { en: 'Touch one of us and you deal with all of us, machan!' },
+  ],
+  hailTuk: [
+    { si: 'මල්ලි, ත්‍රීවීල් එක යනවද?', tr: 'Brother, is this tuk-tuk free?' },
+    { ta: 'அண்ணா, ஆட்டோ வருமா?', tr: 'Brother, is the auto free?' },
+    { en: 'Boss! Meter tuk — Pettah side?' },
+  ],
+  carNice: [
+    { si: 'ෂා! මාර වාහනයක් නේද ඒක!', tr: 'Whoa! What a machine that is!' },
+    { ta: 'வாவ், என்ன கார் இது!', tr: 'Wow, what a car!' },
+    { en: 'Pissu kora — look at that ride, machan!' },
+    { en: 'Must be Cinnamon Gardens money, look at the shine on that.' },
+  ],
+  carWreck: [
+    { si: 'අම්මෝ, මේ වාහනේට මොකද වෙලා තියෙන්නේ?', tr: 'Goodness, what happened to that car?' },
+    { en: 'How is that thing even still rolling on the road?' },
+  ],
+  bloodShock: [
+    { si: 'දෙයියනේ, මේ ලේ නේද? මෙතනින් යමු!', tr: 'Oh God, is that blood? Let us get away from here!' },
+    { ta: 'ஐயோ இரத்தம்! சீக்கிரம் வாங்க போவோம்!', tr: 'Aiyo, blood! Come quickly, let us leave!' },
+    { en: 'Jesus, there is blood on the pavement — stay back!' },
+  ],
+  rainStart: [
+    { si: 'අයියෝ, වැස්ස පටන් ගත්තා! කඩේකට දුවමු!', tr: 'Aiyo, the rain just started! Run under a shop awning!' },
+    { ta: 'மழை பிடிச்சிடுச்சு, ஓடுங்க!', tr: 'The rain caught us, run for cover!' },
+    { en: 'There goes the sky — quick, under the shelter!' },
+  ],
 };
 export function pick(list, r = Math.random) { return list[Math.floor(r() * list.length)]; }
 export function lineText(l) { return l.si || l.ta || l.en; }
