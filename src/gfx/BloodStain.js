@@ -72,7 +72,11 @@ export function addBloodStain(mat) {
   mat.needsUpdate = true; return mat;
 }
 // a per-character copy of a shared patched material (same program, its own wound uniforms)
-export function bloodClone(mat) { const m = mat.clone(); m.onBeforeCompile = mat.onBeforeCompile; m.customProgramCacheKey = mat.customProgramCacheKey; /* copy() drops both */ m.userData.bloodU = bloodUniforms(); m.userData.bloodOwn = true; PATCHED.add(m); return m; }
+export function bloodClone(mat) {
+  const m = mat.clone(); m.onBeforeCompile = mat.onBeforeCompile; m.customProgramCacheKey = mat.customProgramCacheKey; /* copy() drops both */
+  if (mat.userData && mat.userData.u) m.userData.u = mat.userData.u; // preserve live Color/Vector4 uniform refs (NpcHead) across JSON userData clone
+  m.userData.pooledHead = false; m.userData.bloodU = bloodUniforms(); m.userData.bloodOwn = true; PATCHED.add(m); return m;
+}
 
 const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = new THREE.Vector3(), _d = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
 function segDist(p, a, b) { _d.subVectors(b, a); const L = _d.lengthSq(); const t = L > 1e-9 ? Math.max(0, Math.min(1, _p.subVectors(p, a).dot(_d) / L)) : 0; return p.distanceTo(_a.copy(a).addScaledVector(_d, t)); }

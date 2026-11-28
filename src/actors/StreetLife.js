@@ -7,6 +7,7 @@
 // (Character.js actions smoke / paper / guard / cuffed / hold + lean). Props are small shared meshes in the hands.
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
+import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 import { MOVES as FIGHT_MOVES } from './Boxing.js';
 
@@ -90,15 +91,15 @@ function chestTarget(ch, wp, out) { const c = ch.bones.chest; c.updateWorldMatri
 // ------------------------------------------------------------------ StreetLife
 export class StreetLife {
   constructor(crowd) {
-    this.C = crowd; this.rng = crowd.rng; this.smoke = new Smoke(crowd.scene); this.fights = []; this.couples = []; this.t = 0;
-    this.fightCd = 90 + this.rng.next() * 120; this.coupleCd = 20 + this.rng.next() * 30;
-    this.stats = { smoke: 0, paper: 0, call: 0, jog: 0, couple: 0, kiss: 0, fight: 0, reported: 0, handed: 0, lipErr: 0 };
+    this.C = crowd; this.rng = crowd.rng; this.cliqueRng = new RNG(73119); this.smoke = new Smoke(crowd.group || crowd.scene); this.fights = []; this.couples = []; this.cliques = []; this.t = 0;
+    this.fightCd = 90 + this.rng.next() * 120; this.coupleCd = 20 + this.rng.next() * 30; this.cliqueCd = 24 + this.cliqueRng.next() * 26;
+    this.stats = { smoke: 0, paper: 0, call: 0, jog: 0, couple: 0, kiss: 0, clique: 0, fight: 0, reported: 0, handed: 0, lipErr: 0 };
   }
   get police() { return this.C.police || null; }
   // ---------------------------------------------------------------- solo activities
   // At a graph node on the way: sometimes stop for a smoke / a phone call / a look at the paper at the building side of the pavement.
   maybeStop(p) {
-    if (p.jog || p.partner || p.keep || this.C.rain || p.sit) return false; const r = this.rng, h = this.C.hour ?? 12;
+    if (p.jog || p.partner || p.clique || p.keep || this.C.rain || p.sit) return false; const r = this.rng, h = this.C.hour ?? 12;
     const k = r.weighted([['smoke', h >= 6 && h < 23 && p.sp.age !== 'elder' ? 0.04 : 0], ['call', 0.03], ['paper', h >= 6 && h < 12 ? 0.025 : 0.01], [null, 1]]); if (!k) return false;
     const n = L.pedNodes[p.node]; if (!n) return false;
     // stand off the walking line, toward the buildings (away from the kerb), facing the street
@@ -129,6 +130,8 @@ export class StreetLife {
   step(p, dt, ctx) {
     const S = p.scene; if (!S) { p.state = 'walk'; this.C.returnToGraph(p); return { desired: 0 }; }
     if (S.kind === 'follow') return this.stepFollow(p, dt);
+    if (S.kind === 'cliqueFollow') return this.stepCliqueFollow(p, dt);
+    if (S.kind === 'transitBoard') return this.C.stepTransitBoard ? this.C.stepTransitBoard(p, dt) : { desired: 0 };
     if (S.kind === 'couple') return this.stepCouple(p, dt);
     if (S.kind === 'fight') return this.stepFight(p, dt, ctx);
     const A = p.ch.anim, r = this.rng; S.t += dt;
@@ -201,10 +204,101 @@ export class StreetLife {
     if (B.phase === 'fold') { if (p.paper) p.paper.scale.x = lerp(1, 0.35, sm(B.t / 0.5)); if (B.t > 0.5 && p.paper) { p.paper.parent?.remove(p.paper); p.paper = null; A.set('sit'); } if (B.t > 1.6) { A.seated = false; p.benchRead = null; } } // arms back to the sit pose BEFORE the seated flag drops: no leg snap
   }
   benchEnd(p) { if (!p.benchRead) return; if (p.paper) { p.paper.parent?.remove(p.paper); p.paper = null; } p.ch.anim.seated = false; p.ch.anim.paperFlip = 0; p.benchRead = null; }
-  // phone prop whenever someone is on a call or texting (walking or standing)
+  // phone prop whenever someone is on a call, texting, or filming an incident
   props(p, lod) {
-    const want = lod < 3 && (p.ch.anim.action === 'phone' || p.ch.anim.action === 'text');
+    const want = lod < 3 && (p.ch.anim.action === 'phone' || p.ch.anim.action === 'text' || p.state === 'film');
     if (want && !p.phone) { p.phone = phoneProp(); p.ch.bones.handR.add(p.phone); } else if (!want && p.phone) { p.phone.parent?.remove(p.phone); p.phone = null; }
+  }
+  // ---------------------------------------------------------------- 2–4 person friend cliques
+  spawnClique() {
+    const C = this.C, r = this.cliqueRng, f = C.focus; if (!f || !C.specs || !C.specs.length) return false;
+    const size = r.weighted([[2, 3], [3, 4], [4, 2]]); if (C.peds.length < C.max * 0.55 || C.peds.length + size > C.max + 6) return false;
+    const cand = C.nodesNear(f.x, f.z, 115).filter((n) => { const d = Math.hypot(n.x - f.x, n.z - f.z); return d > 42 && d < 105 && C.comp[n.id] === C.mainComp && !C.visible({ x: n.x, z: n.z }); });
+    if (!cand.length) return false;
+    const n0 = r.pick(cand);
+    const goals = C.nodesNear(n0.x, n0.z, 210).filter((n) => Math.hypot(n.x - n0.x, n.z - n0.z) > 85 && C.comp[n.id] === C.mainComp);
+    if (!goals.length) return false;
+    const g = r.pick(goals); const path = C.route(n0.id, g.id); if (!path || path.cost > 300) return false;
+    const pool = C.specs.filter((s) => s.age !== 'elder'); if (pool.length < size) return false;
+    const members = []; const pace = 1.08 + r.next() * 0.18;
+    for (let i = 0; i < size; i++) {
+      const ox = (i === 1 ? 0.55 : i === 2 ? -0.55 : 0), oz = (i >= 2 ? -0.6 : 0);
+      let sx = n0.x + ox, sz = n0.z + oz; if (C.collision.blocked(sx, sz, 0.28) || L.roadAt(sx, sz)) { sx = n0.x; sz = n0.z; }
+      const p = C.makePed(C.vary(r.pick(pool), r.int(0, 1e6)), sx, sz, n0.id);
+      if (!p) { for (const q of members) C.remove(q); return false; }
+      p.pace = pace; p.jog = false; members.push(p);
+    }
+    const lead = members[0]; const cl = { lead, members, speaker: 0, chatT: 2 + r.next() * 3, t: 0 };
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i]; m.clique = cl;
+      if (i === 0) { m.route = path; m.goalPoi = null; m.state = 'walk'; C.pickNext(m); }
+      else { m.state = 'scene'; m.scene = { kind: 'cliqueFollow', lead, cl, slot: i }; }
+    }
+    this.cliques.push(cl); this.stats.clique++; return true;
+  }
+  stepCliqueFollow(p, dt) {
+    const S = p.scene, Ld = S && S.lead, cl = S && S.cl;
+    if (!Ld || !cl || !this.C.peds.includes(Ld) || !this.C.isRoutine(Ld.state)) {
+      if (cl) this.dissolveClique(cl); else { p.scene = null; p.clique = null; p.state = 'walk'; this.C.returnToGraph(p); }
+      return { desired: 0 };
+    }
+    const fx = Math.sin(Ld.yaw), fz = Math.cos(Ld.yaw);
+    const offs = [[0, 0], [0.58, -0.18], [-0.58, -0.26], [0.28, -0.82]];
+    const [lat, back] = offs[S.slot] || [0, -0.75 * S.slot];
+    let tx = Ld.x - fz * lat + fx * back, tz = Ld.z + fx * lat + fz * back;
+    const dl = Math.hypot(Ld.x - p.x, Ld.z - p.z);
+    if (dl > 2.2 || this.C.collision.blocked(tx, tz, 0.28) || (!Ld.crossing && L.roadAt(tx, tz))) {
+      tx = Ld.x - fx * (0.68 * S.slot); tz = Ld.z - fz * (0.68 * S.slot); // narrow pavement / crossing kerb: tuck single-file behind leader
+    }
+    const d = Math.hypot(tx - p.x, tz - p.z), ls = Math.hypot(Ld.vx || 0, Ld.vz || 0);
+    p.crossing = !!Ld.crossing || (p.crossing && !!L.roadAt(p.x, p.z));
+    if (Ld.edge && Ld.edge.type === 'cross') p.edge = Ld.edge;
+    // Clique walking banter: members take turns speaking, smiling and glancing toward the active speaker
+    if (S.slot === 1) {
+      cl.t += dt; cl.chatT -= dt;
+      if (cl.chatT <= 0) {
+        cl.chatT = 2.6 + this.cliqueRng.next() * 3.8; cl.speaker = (cl.speaker + 1) % cl.members.length;
+        const spk = cl.members[cl.speaker];
+        if (spk && this.C.peds.includes(spk)) {
+          const dist = this.C.focus ? Math.hypot(spk.x - this.C.focus.x, spk.z - this.C.focus.z) : 99;
+          spk.ch.face.talking = true; spk.talkEndT = this.t + 1.8;
+          if (dist < 24 && this.cliqueRng.chance(0.45)) this.C.speak(spk, this.cliqueRng.chance(0.25) ? 'laugh' : 'chat', 0, 2.0);
+          for (const m of cl.members) if (m !== spk && this.C.peds.includes(m)) { m.lookT = 1.4; m.lookAtPt = spk; if (this.cliqueRng.chance(0.4)) m.ch.face.set('smile', 1.6); }
+        }
+      }
+      for (const m of cl.members) if (m.talkEndT && this.t > m.talkEndT) { m.ch.face.talking = false; m.talkEndT = 0; }
+    }
+    return { desired: d < 0.08 ? 0 : clamp(ls + d * 1.9, 0, 2.6), tx, tz, avoid: d > 1.2, accel: 4.2 };
+  }
+  dissolveClique(cl) {
+    if (!cl || cl.ended) return; cl.ended = true;
+    this.cliques = this.cliques.filter((c) => c !== cl);
+    for (const m of cl.members) {
+      if (!m) continue; m.clique = null; m.ch.face.talking = false;
+      if (m.scene && m.scene.kind === 'cliqueFollow') { m.scene = null; if (m.state === 'scene') { m.state = 'walk'; this.C.returnToGraph(m); } }
+    }
+  }
+  // Group solidarity when a clique member is harassed, shoved, robbed or attacked
+  cliqueReact(victim, kind, player) {
+    const cl = victim && victim.clique; if (!cl || cl.ended) return;
+    const peers = cl.members.filter((m) => m !== victim && this.C.peds.includes(m) && !m.dead && m.state !== 'down');
+    this.dissolveClique(cl);
+    if (!peers.length || !player) return;
+    const armed = !!this.C.playerArmed, r = this.cliqueRng;
+    peers.forEach((f, idx) => {
+      const ax = f.x - player.x, az = f.z - player.z, d = Math.hypot(ax, az) || 1;
+      if (armed || kind === 'gun' || kind === 'rob') {
+        if (idx === 0 && d > 3.5 && r.chance(0.55)) { this.C.startFilm(f, player, 'holdup', true); }
+        else { this.C.react(f, 'flee', 4 + r.next() * 3, { fleeDir: this.C.spread(ax / d, az / d, 0.5), fleeSp: 3.5 + r.next() }); f.ch.face.set('fear', 4); }
+      } else if (kind === 'shove' || kind === 'punch') {
+        if (idx === 0 && f.temper > 0.45) { this.C.speak(f, 'cliqueBackUp', 2, 2.5); this.C.startPedFight(f); }
+        else if (idx === 1 && r.chance(0.75)) { this.C.startFilm(f, player, 'brawl', true); }
+        else { this.C.react(f, 'confront', 4 + r.next() * 2); f.ch.anim.set('argue'); f.ch.face.set('angry', 4); }
+      } else if (kind === 'insult' || kind === 'provoke') {
+        this.C.react(f, 'confront', 3.5 + r.next() * 2); f.ch.anim.set(idx === 0 ? 'point' : 'argue'); f.ch.face.set('angry', 3.5);
+        if (idx === 0) this.C.speak(f, 'cliqueBackUp', 1, 2.4);
+      }
+    });
   }
   // ---------------------------------------------------------------- couples
   spawnCouple(ctx) {
@@ -316,6 +410,8 @@ export class StreetLife {
     this.t += dt; this.smoke.update(dt); const h = this.C.hour ?? 12;
     this.coupleCd -= dt; if (this.coupleCd <= 0) { this.coupleCd = 40 + this.rng.next() * 50; if (!this.C.rain && h >= 8 && h < 22 && this.couples.length < 2) this.spawnCouple(ctx); }
     this.couples = this.couples.filter((cp) => this.C.peds.includes(cp.a) && this.C.peds.includes(cp.b) || (this.endCouple(cp, true), false));
+    this.cliqueCd -= dt; if (this.cliqueCd <= 0) { this.cliqueCd = 28 + this.cliqueRng.next() * 34; if (!this.C.rain && h >= 7 && h < 23 && this.cliques.length < 3) this.spawnClique(); }
+    this.cliques = this.cliques.filter((cl) => !cl.ended && this.C.peds.includes(cl.lead) || (this.dissolveClique(cl), false));
     this.fightCd -= dt; if (this.fightCd <= 0) { this.fightCd = 150 + this.rng.next() * 180; if (h >= 9 && h < 23 && !this.fights.length) this.startFight(ctx); }
     for (const F of this.fights.slice()) this.updateFight(F, dt, ctx);
   }
@@ -330,18 +426,21 @@ export class StreetLife {
   handOver(F) { F.handed = true; this.fights = this.fights.filter((f) => f !== F); for (const p of [F.a, F.b]) { p.scene = null; p.faceYaw = undefined; this.C.release(p); } this.stats.handed++; }
   // a reaction / the player interrupts someone mid-activity
   interrupt(p) {
-    const S = p.scene; if (!S) { this.benchEnd(p); return; }
+    const S = p.scene; if (!S) { this.benchEnd(p); if (p.clique) this.dissolveClique(p.clique); return; }
     if (S.solo) this.endSolo(p, true);
     else if (S.kind === 'fight') { if (!S.F.stopped) this.endFight(S.F, 'interrupted'); }
     else if (S.kind === 'couple') this.endCouple(S.cp, true);
+    else if (S.kind === 'cliqueFollow') this.dissolveClique(S.cl);
     else { p.scene = null; if (p.partner) { p.partner.partner = null; p.partner.holdFor = null; } p.partner = null; p.holdFor = null; }
     p.scene = null; p.faceYaw = undefined; if (p.state === 'scene') this.C.returnToGraph(p); // always leaves with a valid walk target
   }
   forget(p) { // despawned / released
-    this.dropProps(p); if (p.phone) { p.phone.parent?.remove(p.phone); p.phone = null; } if (p.partner && p.partner.partner === p) { const o = p.partner; o.partner = null; if (o.scene && (o.scene.kind === 'follow' || o.scene.kind === 'couple')) { o.scene = null; o.ch.anim.nearLean = null; o.ch.anim.holdL = o.ch.anim.holdR = null; if (o.state === 'scene') { o.state = 'walk'; this.C.returnToGraph(o); } } }
+    this.dropProps(p); if (p.phone) { p.phone.parent?.remove(p.phone); p.phone = null; }
+    if (p.clique) this.dissolveClique(p.clique);
+    if (p.partner && p.partner.partner === p) { const o = p.partner; o.partner = null; if (o.scene && (o.scene.kind === 'follow' || o.scene.kind === 'couple')) { o.scene = null; o.ch.anim.nearLean = null; o.ch.anim.holdL = o.ch.anim.holdR = null; if (o.state === 'scene') { o.state = 'walk'; this.C.returnToGraph(o); } } }
     p.partner = null; this.couples = this.couples.filter((c) => c.a !== p && c.b !== p);
     for (const F of this.fights.slice()) if ((F.a === p || F.b === p) && !F.handed) this.endFight(F, 'gone');
   }
-  clear() { this.smoke.clear(); this.fights = []; this.couples = []; }
+  clear() { this.smoke.clear(); this.fights = []; this.couples = []; this.cliques = []; }
 }
 export { cigarette, newspaper, phoneProp, chestTarget }; // dev/streetlife.html poses them directly

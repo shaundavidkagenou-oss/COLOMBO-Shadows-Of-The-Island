@@ -179,20 +179,26 @@ function patch(sh) {
 }
 const cacheKey = () => 'npcHead3';
 const C3 = (h) => new THREE.Color(h);
+const HEAD_MAT_POOL = new Map();
 // sp: appearance spec; fv: FACE_VARIANTS entry (or null); geo: from npcHeadGeometry
+// Pooled by quantized look signature so untouched civilians share materials (lazy-cloned on wound in Blood.js)
 export function npcHeadMaterial(sp, fv, geo) {
-  const f = sp.sex === 'f'; const skin = C3(sp.skin || '#8d5a3b'); const hair = C3(sp.hairColor || '#15100c');
+  const f = sp.sex === 'f'; const skHex = sp.skin || '#8d5a3b', hrHex = sp.hairColor || '#15100c';
+  const bw = fv?.browW ?? (f ? 0.85 : 1.05); const stub = f ? 0 : (fv?.stubble ?? (sp.beard ? 0.9 : sp.age === 'adult' ? 0.3 : 0.15));
+  const pottu = !!fv?.pottu && sp.hair !== 'hijab' && sp.profile !== 'medical' && !sp.noPottu && geo.userData.pottu[2] > 0; // 75th: no forehead dot on hospital staff (nurses, doctors)
+  const poolKey = `${f ? 1 : 0}|${sp.age || 'a'}|${skHex}|${hrHex}|${fv?.lips || ''}|${fv?.iris || ''}|${Math.round(bw * 20)}|${Math.round(stub * 20)}|${sp.beard ? 1 : 0}|${sp.moustache ? 1 : 0}|${pottu ? 1 : 0}|${geo.userData.v}`;
+  const cached = HEAD_MAT_POOL.get(poolKey); if (cached) return cached;
+  const skin = C3(skHex); const hair = C3(hrHex);
   const lipBase = skin.clone().multiply(new THREE.Color(0.74, 0.5, 0.5));
   const lip = fv?.lips ? lipBase.clone().lerp(C3(fv.lips), f ? 0.55 : 0.3) : lipBase; if (sp.age === 'elder') lip.lerp(skin.clone().multiplyScalar(0.8), 0.35);
   const brow = hair.clone(); if (hair.r > 0.2) brow.lerp(C3('#3a3632'), 0.3); // grey / white hair: brows a little darker than the hair
-  const bw = fv?.browW ?? (f ? 0.85 : 1.05); const stub = f ? 0 : (fv?.stubble ?? (sp.beard ? 0.9 : sp.age === 'adult' ? 0.3 : 0.15));
-  const pottu = !!fv?.pottu && sp.hair !== 'hijab' && sp.profile !== 'medical' && !sp.noPottu && geo.userData.pottu[2] > 0; // 75th: no forehead dot on hospital staff (nurses, doctors)
   const u = { uLip: { value: lip }, uHair: { value: brow }, uIris: { value: C3(fv?.iris || '#3a2414').multiplyScalar(1.15) },
     uK: { value: new THREE.Vector4(0.78 * bw, f ? 0.95 : 0.7, 0.42 * stub + (sp.beard ? 0.2 : 0), 0.38 * stub + (sp.beard || sp.moustache ? 0.2 : 0)) },
     uBr: { value: new THREE.Vector4(Math.abs(DATA.variants[geo.userData.v].L.eyeL[0]), DATA.variants[geo.userData.v].L.eyeL[1], DATA.variants[geo.userData.v].L.er, (f ? 0.8 : 1) * clamp(bw, 0.75, 1.3)) },
     uPot: { value: pottu ? new THREE.Vector4(geo.userData.pottu[0], geo.userData.pottu[1], geo.userData.pottu[2] + 0.001, 0.0042) : new THREE.Vector4(0, 0, 0, 0) } };
   const m = new THREE.MeshStandardMaterial({ color: skin, vertexColors: true, roughness: 0.6, metalness: 0 });
-  m.userData.u = u; m.onBeforeCompile = patch; m.customProgramCacheKey = cacheKey; m.name = 'npcHead'; patchInterior(m);
+  m.userData.u = u; m.userData.pooledHead = HEAD_MAT_POOL.size < 160; m.onBeforeCompile = patch; m.customProgramCacheKey = cacheKey; m.name = 'npcHead'; patchInterior(m);
+  if (m.userData.pooledHead) HEAD_MAT_POOL.set(poolKey, m);
   return m;
 }
 

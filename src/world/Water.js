@@ -156,12 +156,16 @@ function waterMat(opts) {
 // a water surface only asks for the mirror render while it is on screen AND within this distance: a sliver of harbour at the
 // end of a street 400 m away gets the water's own sky reflection (as on Medium) instead of a second render of the city
 const REFL_NEAR = 300;
-// objects left out of the mirror pass (GrassGPU: blades are invisible at reflection resolution and would double their cost)
+// objects left out of the mirror pass (GrassGPU, pedestrians, vehicles, small street props, near-only window joinery & ground detail:
+// invisible or blurred away at half-res rippled reflection, while buildings, sky, bridges, trees, terrain and boats still reflect cleanly)
 export const reflSkip = [];
+export const reflSkipProviders = []; // functions returning Iterable<Object3D | { mesh: Object3D }> (e.g. LIVE_VEHICLES)
+export function skipInRefl(o) { if (o && !reflSkip.includes(o)) reflSkip.push(o); return o; }
+export function unskipInRefl(o) { const i = o ? reflSkip.indexOf(o) : -1; if (i >= 0) reflSkip.splice(i, 1); }
 export class WaterReflection {
   constructor(group) {
     this.group = group; this.rt = new THREE.WebGLRenderTarget(512, 256, { type: THREE.HalfFloatType, samples: 0 }); this.rt.texture.generateMipmaps = false;
-    this.cam = new THREE.PerspectiveCamera(); this.enabled = true; this.scale = 0.5;
+    this.cam = new THREE.PerspectiveCamera(); this.cam.name = 'waterRefl'; this.enabled = true; this.scale = 0.5;
     this._v = new THREE.Vector3(); this._p = new THREE.Plane(); this._c = new THREE.Vector4(); this._q = new THREE.Vector4(); this._fr = new THREE.Frustum(); this._m = new THREE.Matrix4(); this._wq = new THREE.Quaternion();
     const lake = new THREE.Box3(); for (const [cx, cz, rx, rz] of LAKE) lake.union(new THREE.Box3(new THREE.Vector3(cx - rx, -1, cz - rz), new THREE.Vector3(cx + rx, 0, cz + rz)));
     this.boxes = [{ box: new THREE.Box3(new THREE.Vector3(-2600, -1.5, -2500), new THREE.Vector3(-505, 0.5, 1900)), h: -0.9 }, { box: new THREE.Box3(new THREE.Vector3(-2600, -1.5, -4200), new THREE.Vector3(230, 0.5, -1180)), h: -0.95 }, { box: lake, h: -0.55 }];
@@ -218,11 +222,16 @@ export class WaterReflection {
       q.set(Math.sign(c.x), Math.sign(c.y), 0, 1).applyMatrix4(this._m.copy(pm).invert());
       const a = -q.z / c.dot(q); pm.elements[2] = -a * c.x; pm.elements[6] = -a * c.y; pm.elements[10] = -1 - a * c.z; pm.elements[14] = -a * c.w;
     }
-    // render (water hidden, shadows reused, no post)
+    // render (water hidden, shadows reused, no post, dynamic/micro-detail actors skipped)
     const prevRT = renderer.getRenderTarget(), prevShadow = renderer.shadowMap.autoUpdate, prevXR = renderer.xr.enabled; const vis = this.group.visible;
-    this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false; const sk = reflSkip.map((o) => o.visible); for (const o of reflSkip) o.visible = false;
+    this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false;
+    const skO = this._skO || (this._skO = []), skV = this._skV || (this._skV = []); skO.length = 0; skV.length = 0;
+    const hideOne = (o) => { if (!o || !o.visible) return; skO.push(o); skV.push(true); o.visible = false; };
+    for (let i = 0; i < reflSkip.length; i++) hideOne(reflSkip[i]);
+    for (let i = 0; i < reflSkipProviders.length; i++) { const it = reflSkipProviders[i](); if (it) for (const x of it) hideOne(x && x.isObject3D ? x : x && x.mesh); }
     renderer.setRenderTarget(this.rt); renderer.clear(); renderer.render(scene, cam);
-    renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis; reflSkip.forEach((o, i) => { o.visible = sk[i]; });
+    renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis;
+    for (let i = 0; i < skO.length; i++) skO[i].visible = skV[i];
     waterUniforms.uReflH.value = H; this.valid = true; this.lastBest = best; fade(want);
   }
 }

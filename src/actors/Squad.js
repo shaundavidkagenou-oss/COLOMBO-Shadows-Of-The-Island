@@ -156,6 +156,7 @@ export class Squad {
   }
   loadActive(m, opts = {}) {
     const g = this.g, P = g.player, W = g.weapons; const old = P.ch;
+    if (g.crowd) g.crowd.viralUntil = 0; // new protagonist face/outfit clears street viral recognition
     if (P.fpHead) { P.fpHead.scale.setScalar(1); P.fpHead = null; } // first person collapses the active head: give it back
     P.ch = m.ch; P.x = m.x; P.z = m.z; P.y = m.y; P.yaw = m.yaw; P.vy = 0; P.speed = m.speed; P.grounded = true; P.climb = null; P.crouching = false; P.idleT = 0; P.emote = null; P.hitCd = 0;
     P.perk = m.def; const inV = opts.swap || opts.drive; if (!inV && m.ch.root.parent !== g.scene) { m.ch.root.parent?.remove(m.ch.root); g.scene.add(m.ch.root); } m.ch.root.visible = true; m.ch.mesh.visible = true; m.hidden = false;
