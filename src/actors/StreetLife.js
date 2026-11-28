@@ -220,21 +220,23 @@ export class StreetLife {
     if (!goals.length) return false;
     const g = r.pick(goals); const path = C.route(n0.id, g.id); if (!path || path.cost > 300) return false;
     const pool = C.specs.filter((s) => s.age !== 'elder'); if (pool.length < size) return false;
-    const members = []; const pace = 1.08 + r.next() * 0.18;
-    for (let i = 0; i < size; i++) {
-      const ox = (i === 1 ? 0.55 : i === 2 ? -0.55 : 0), oz = (i >= 2 ? -0.6 : 0);
-      let sx = n0.x + ox, sz = n0.z + oz; if (C.collision.blocked(sx, sz, 0.28) || L.roadAt(sx, sz)) { sx = n0.x; sz = n0.z; }
-      const p = C.makePed(C.vary(r.pick(pool), r.int(0, 1e6)), sx, sz, n0.id);
-      if (!p) { for (const q of members) C.remove(q); return false; }
-      p.pace = pace; p.jog = false; members.push(p);
-    }
-    const lead = members[0]; const cl = { lead, members, speaker: 0, chatT: 2 + r.next() * 3, t: 0 };
-    for (let i = 0; i < members.length; i++) {
-      const m = members[i]; m.clique = cl;
-      if (i === 0) { m.route = path; m.goalPoi = null; m.state = 'walk'; C.pickNext(m); }
-      else { m.state = 'scene'; m.scene = { kind: 'cliqueFollow', lead, cl, slot: i }; }
-    }
-    this.cliques.push(cl); this.stats.clique++; return true;
+    const members = []; const pace = 1.08 + r.next() * 0.18; const prevRng = C.rng; C.rng = r;
+    try {
+      for (let i = 0; i < size; i++) {
+        const ox = (i === 1 ? 0.55 : i === 2 ? -0.55 : 0), oz = (i >= 2 ? -0.6 : 0);
+        let sx = n0.x + ox, sz = n0.z + oz; if (C.collision.blocked(sx, sz, 0.28) || L.roadAt(sx, sz)) { sx = n0.x; sz = n0.z; }
+        const p = C.makePed(C.vary(r.pick(pool), r.int(0, 1e6)), sx, sz, n0.id);
+        if (!p) { for (const q of members) C.remove(q); return false; }
+        p.pace = pace; p.jog = false; members.push(p);
+      }
+      const lead = members[0]; const cl = { lead, members, speaker: 0, chatT: 2 + r.next() * 3, t: 0 };
+      for (let i = 0; i < members.length; i++) {
+        const m = members[i]; m.clique = cl;
+        if (i === 0) { m.route = path; m.goalPoi = null; m.state = 'walk'; C.pickNext(m); }
+        else { m.state = 'scene'; m.scene = { kind: 'cliqueFollow', lead, cl, slot: i }; }
+      }
+      this.cliques.push(cl); this.stats.clique++; return true;
+    } finally { C.rng = prevRng; }
   }
   stepCliqueFollow(p, dt) {
     const S = p.scene, Ld = S && S.lead, cl = S && S.cl;
@@ -431,6 +433,7 @@ export class StreetLife {
     else if (S.kind === 'fight') { if (!S.F.stopped) this.endFight(S.F, 'interrupted'); }
     else if (S.kind === 'couple') this.endCouple(S.cp, true);
     else if (S.kind === 'cliqueFollow') this.dissolveClique(S.cl);
+    else if (S.kind === 'transitBoard') { if (S.v) { S.v.hailHold = 0; S.v.hold = false; S.v.ind = 0; } p.scene = null; }
     else { p.scene = null; if (p.partner) { p.partner.partner = null; p.partner.holdFor = null; } p.partner = null; p.holdFor = null; }
     p.scene = null; p.faceYaw = undefined; if (p.state === 'scene') this.C.returnToGraph(p); // always leaves with a valid walk target
   }

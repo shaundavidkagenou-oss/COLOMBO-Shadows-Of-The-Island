@@ -228,12 +228,14 @@ export class Game {
     SoundBank.load().catch((e) => console.warn('[sounds]', e)); // replacement recordings: the built-in pack + any saved with the `sounds` window (decoded once audio starts)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     // WaterReflection fast-path: skip dynamic vehicles, seated occupants, protagonist/squad, and police on foot in the 384px water reflection pass
-    reflSkipProviders.add((mark) => {
+    if (this._reflProv) reflSkipProviders.delete(this._reflProv);
+    this._reflProv = (mark) => {
       for (const v of LIVE_VEHICLES) if (v.mesh) mark(v.mesh);
       if (this.player?.ch?.root) mark(this.player.ch.root);
       if (this.squad?.members) for (const m of this.squad.members) if (m.ch?.root) mark(m.ch.root);
       if (this.police?.foot) for (const o of this.police.foot) if (o.ch?.root) mark(o.ch.root);
-    });
+    };
+    reflSkipProviders.add(this._reflProv);
     try { await this.compileForGame(this.scene, 15000); } catch (e) { console.warn('compile', e); } // the main pass's programs (see compileForGame)
     this.wireEvents();
     DevLock.install(() => { try { this.hud.notify('Developer tools activated', 'Console ( ` ) and Texture Studio are back', 'success', 4); } catch (e) { /* menu */ } }); // the secret code works anywhere in the game
@@ -852,7 +854,7 @@ export class Game {
     if (k === 'cpuWorkers' || k === '*') setWorkerOverride(Settings.get('cpuWorkers')); // 93rd: live (the geometry pool grows / shrinks; 0 = the main-thread paths)
     if (k === 'cpuPanel' || k === '*') { if (Settings.get('cpuPanel')) (this.cpuPanel || (this.cpuPanel = new CpuPanel(this))).show(true); else if (this.cpuPanel) this.cpuPanel.show(false); }
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.outPR()); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.outPR()); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && (k === 'quality' || k === '*')) o.material.needsUpdate = true; }); }
     if (k === 'upscale' || k === 'sgsrSharpness' || k === 'sgsrEdgeDir' || k === '*') this.applyPR(); // 91st: live — the composer's targets resize, the SGSR pass is added / removed
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'lensFlare' || k === 'lightShafts' || k === '*') this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false);

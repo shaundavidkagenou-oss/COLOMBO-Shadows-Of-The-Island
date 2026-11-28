@@ -197,7 +197,7 @@ export class EventSite {
   }
   // a person already walking the street decides to go to the event
   recruit() { this.mgr.mk('recruit');
-    const C = this.crowd, e = this.s.entry || this.gateOut; for (let k = 0; k < 8; k++) { const p = C.peds[Math.floor(this.rng() * C.peds.length)]; if (!p || p.keep || p.job || p.state !== 'walk' || p.crossing || p.jog || p.evIncoming || p.homeCar || p.poi || NOT_VISITOR.has(p.sp && p.sp.preset)) continue;
+    const C = this.crowd, e = this.s.entry || this.gateOut; for (let k = 0; k < 8; k++) { const p = C.peds[Math.floor(this.rng() * C.peds.length)]; if (!p || p.keep || p.job || p.clique || p.partner || p.state !== 'walk' || p.crossing || p.jog || p.evIncoming || p.homeCar || p.poi || NOT_VISITOR.has(p.sp && p.sp.preset)) continue;
       const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < 25 || d > 140 || p.nextNode === undefined) continue; const from = p.nextNode ?? p.node; const route = C.route(from, this.node); if (!route) continue;
       p.goalPoi = null; p.route = route; p.evIncoming = this; p.keep = true; const a = new Attendee(this, this.roleFor(p.sp), null); a.p = p; p.onArrive = (pp) => this.arrive(pp, a); this.incoming.push(a); this.usedSpecs.add(useKey(p.sp)); this.stats.recruited++; return true; }
     return false;

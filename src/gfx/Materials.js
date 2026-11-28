@@ -137,9 +137,18 @@ export function patchLightChunks() {
   if (THREE.ShaderChunk.lights_pars_begin.includes(oldPt)) THREE.ShaderChunk.lights_pars_begin = THREE.ShaderChunk.lights_pars_begin.replace(oldPt, newPt);
   if (THREE.ShaderChunk.lights_pars_begin.includes(oldSp)) THREE.ShaderChunk.lights_pars_begin = THREE.ShaderChunk.lights_pars_begin.replace(oldSp, newSp);
   const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
-  if (THREE.ShaderChunk.lights_fragment_begin.includes(call) && !THREE.ShaderChunk.lights_fragment_begin.includes('if ( directLight.visible ) { ' + call)) {
-    THREE.ShaderChunk.lights_fragment_begin = THREE.ShaderChunk.lights_fragment_begin.split(call).join(`if ( directLight.visible ) { ${call} }`);
+  // Gate only point & spot light BRDF calls (leaving NUM_SUN_LIGHTS / NUM_DIR_LIGHTS untouched so Atmosphere.js's
+  // preprocessor #if / #endif slice on NUM_DIR_LIGHTS stays on its own lines in GLSL 300 es).
+  let beg = THREE.ShaderChunk.lights_fragment_begin;
+  for (const marker of ['#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )', '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )']) {
+    const mAt = beg.indexOf(marker); if (mAt < 0) continue;
+    const endAt = beg.indexOf('#pragma unroll_loop_end', mAt);
+    const cAt = beg.indexOf(call, mAt);
+    if (cAt > mAt && (endAt < 0 || cAt < endAt) && !beg.slice(mAt, cAt).includes('if ( directLight.visible )')) {
+      beg = beg.slice(0, cAt) + `if ( directLight.visible ) {\n\t\t\t${call}\n\t\t}` + beg.slice(cAt + call.length);
+    }
   }
+  THREE.ShaderChunk.lights_fragment_begin = beg;
 }
 patchLightChunks();
 function roadSpotSpec(m) {

@@ -27,14 +27,14 @@ const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['t
 const EXOTIC_CARS = new Set(['praetor', 'raiden', 'vanta', 'kaizan', 'varuna', 'warden']);
 export class Crowd {
   constructor(scene, collision, events) {
-    this.scene = scene; this.group = new THREE.Group(); this.group.name = 'crowd'; scene.add(this.group);
+    this.scene = scene; this.group = new THREE.Group(); this.group.name = 'crowd'; this.group.userData.identityGroup = true; scene.add(this.group);
     this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.envRng = new RNG(99173); this.max = 70; this.t = 0; this.police = null;
     this.viralUntil = 0; this.viralDistrict = null; this._wasRain = false;
     this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
     this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings(); this.life = new StreetLife(this);
     // NPC minds: personality, emotions, memory, relationships, event bus (Mind.js); a car horn nearby frays nerves
-    this.minds = new MindSystem(this); this._reboard = []; this._rw = []; if (events && events.on) events.on('horn', (v) => { if (v && v.x !== undefined) this.minds.stimulus('horn', v.x, v.z, 14, 0, null); });
+    this.minds = new MindSystem(this); this._reboard = []; this._transitBoard = []; this._rw = []; if (events && events.on) events.on('horn', (v) => { if (v && v.x !== undefined) this.minds.stimulus('horn', v.x, v.z, 14, 0, null); });
   }
   // Which road crossings people use: a painted zebra (main / secondary roads at junctions), a signalised junction, or a
   // minor lane (no markings in real Colombo either). Junction corners on main roads without a zebra (bends, level
@@ -203,8 +203,8 @@ export class Crowd {
     if (sp.age !== 'elder' && !this.rain && this.rng.chance(jogK)) { p.jog = true; p.pace = this.rng.range(2.6, 3.2); p.umbrella = false; this.life.stats.jog++; }
     this.minds.attach(p); ch.crowdPed = p; this.peds.push(p); this.place(p); return p;
   }
-  // hand a person over to another system (police arrest): no longer updated or despawned by the crowd, not disposed
-  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); this.minds.detach(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; if (p.gather && p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.gather = null; p.helpI = null; p.helpOf = null; p.homeCar = null; }
+  // hand a person over to another system (police arrest, bank, station, transit): reparent out of crowd.group onto scene, not disposed
+  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); if (p.ch?.root?.parent === this.group) this.scene.add(p.ch.root); this.life.forget(p); this.minds.detach(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; if (p.gather && p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.gather = null; p.helpI = null; p.helpOf = null; p.homeCar = null; }
   remove(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.despawn(p); }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
@@ -750,6 +750,7 @@ export class Crowd {
       p.ch.mesh.castShadow = dist < 45;
     }
     if (this._reboard.length) { for (const p of this._reboard) { p.reboardQ = false; const v = p.homeCar; if (p.state === 'toCar' && v && this.traffic && this.traffic.reboard(v, p)) continue; p.homeCar = null; if (v) v.awayDriver = null; if (p.state === 'toCar') this.endReaction(p); } this._reboard.length = 0; } // handed back to traffic outside the loop (release() splices peds)
+    if (this._transitBoard && this._transitBoard.length) { for (const [v, p] of this._transitBoard) { p._tbQ = false; if (!this.peds.includes(p)) continue; if (!this.traffic || !this.traffic.boardTransit(v, p)) { p.scene = null; p.state = 'walk'; this.returnToGraph(p); } } this._transitBoard.length = 0; } // transit boarding outside the loop so release() never splices mid-iteration or gets clobbered by world position
   }
   // a ragdolled body: follows its pelvis, bleeds into a pool once it has settled, and is cleared away unseen much later
   ragPed(p, dt, focus, dist) {
@@ -956,8 +957,7 @@ export class Crowd {
     if (!bp || S.t > 10) { v.hailHold = 0; v.hold = false; p.scene = null; p.state = 'walk'; this.returnToGraph(p); return { desired: 0 }; }
     const dx = bp.x - p.x, dz = bp.z - p.z, d = Math.hypot(dx, dz);
     if (d < 1.15 && Math.abs(v.speed || 0) < 0.8) {
-      p.scene = null;
-      if (!T.boardTransit(v, p)) { p.state = 'walk'; this.returnToGraph(p); }
+      if (!p._tbQ) { p._tbQ = true; (this._transitBoard || (this._transitBoard = [])).push([v, p]); }
       return { desired: 0 };
     }
     return { desired: clamp(0.8 + d * 1.1, 0.9, 2.0), tx: bp.x, tz: bp.z, avoid: d > 1.8, accel: 3.5 };
@@ -1096,7 +1096,7 @@ export class Crowd {
   noticeGun(dt, player, aiming) {
     if (!this.playerArmed || !player || player.vehicle) { this.gunT = 0; return; }
     this.gunT = (this.gunT || 0) - dt; if (this.gunT > 0) return; this.gunT = 0.25;
-    const near = []; for (const p of this.peds) { if (p.dead || p.keep || p.job || !this.isRoutine(p.state) || p.gunSeen > this.t - 25) continue; const dx = p.x - player.x, dz = p.z - player.z, d2 = dx * dx + dz * dz; if (d2 < 324) near.push([d2, p]); }
+    const near = []; for (const p of this.peds) { if (p.dead || p.keep || p.job || (!this.isRoutine(p.state) && !(p.state === 'scene' && p.scene && p.scene.kind === 'cliqueFollow')) || p.gunSeen > this.t - 25) continue; const dx = p.x - player.x, dz = p.z - player.z, d2 = dx * dx + dz * dz; if (d2 < 324) near.push([d2, p]); }
     if (!near.length) return; near.sort((a, b) => a[0] - b[0]); let rays = 0; const night = this.night > 0.5;
     for (const [d2, p] of near) { if (rays >= 2) break; const d = Math.sqrt(d2) || 0.01; const ax = player.x - p.x, az = player.z - p.z; const cosA = (Math.sin(p.yaw) * ax + Math.cos(p.yaw) * az) / d;
       const heard = p.gunHint && p.gunHint <= this.t; // warned by someone nearby: they look round for you

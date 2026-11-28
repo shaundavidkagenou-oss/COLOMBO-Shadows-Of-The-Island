@@ -383,8 +383,10 @@ export class Traffic {
   unparkDriveOff(v) {
     if (!v || !v.parked || v.player || v.dead || v.towedBy) return false;
     const ln = this.laneNear(v.x, v.z, v.yaw, 20); if (!ln) return false;
+    const lane = ln.seg.level <= 1 ? 1 : 0; const piece = linePiece(ln.seg, ln.piece.from, ln.piece.to, lane);
+    const s = clamp((v.x - piece.p0[0]) * piece.d[0] + (v.z - piece.p0[1]) * piece.d[1], 0.5, piece.len - 0.5);
     if (v.spot) { this.vacate(v.spot); v.spot = null; } v.left = null;
-    if (!this.adoptAI(v, ln, { place: false })) return false;
+    if (!this.adoptAI(v, { piece, s, seg: ln.seg }, { place: false })) return false;
     v.ai.rejoin = true; v.ai.rjT = 0; v.ind = 1; v.speed = 1.2;
     this.transitStats = this.transitStats || { boarded: 0, alighted: 0, unparked: 0 }; this.transitStats.unparked++;
     return true;

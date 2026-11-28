@@ -182,7 +182,7 @@ export class Phone {
     if (moved) { Audio.ui('hover'); this.render(); }
     else if (this.app === 'global' && this.browser.update()) this.render(); // target picker: live positions
     this.tick = (this.tick || 0) + 1; if (this.tick % 30 === 0) this.renderBar(); // clock in the status bar
-    if (this.app === 'events' && this.tick % 45 === 0) this.render(); // live: states, attendance, notes
+    if ((this.app === 'events' || this.app === 'live') && this.tick % 45 === 0) this.render(); // live: states, attendance, notes, ColomboLive viral timer & views
   }
   // ---- 81st: City Events (data: Game.cityEvents — the live instances of the event manager; nothing here is made up)
   evSections() { const M = this.g.cityEvents; return M && M.ready ? M.sections() : null; }

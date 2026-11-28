@@ -18,7 +18,7 @@ export function gatherBodies(scene) {
     if (ch.anim && ch.anim.seated && ch.anim.seatW > 0.3) continue; // sitting in a vehicle / on a seat
     if (!inScene(root, scene)) continue;
     const ped = ch.crowdPed || null; if (ped && (ped.state === 'down' || ped.vanish)) continue;
-    let x, y, z; if (root.parent === scene) { x = root.position.x; y = root.position.y; z = root.position.z; } else { root.getWorldPosition(_v); x = _v.x; y = _v.y; z = _v.z; }
+    let x, y, z; if (root.parent === scene || root.parent.userData.identityGroup) { x = root.position.x; y = root.position.y; z = root.position.z; } else { root.getWorldPosition(_v); x = _v.x; y = _v.y; z = _v.z; }
     out.push({ ch, x, y, z, r: ch.bodyR || BODY_R, ped });
   }
   return out;

@@ -159,7 +159,7 @@ const REFL_NEAR = 300;
 // objects left out of the mirror pass (GrassGPU, pedestrians, vehicles, small street props, near-only window joinery & ground detail:
 // invisible or blurred away at half-res rippled reflection, while buildings, sky, bridges, trees, terrain and boats still reflect cleanly)
 export const reflSkip = [];
-export const reflSkipProviders = []; // functions returning Iterable<Object3D | { mesh: Object3D }> (e.g. LIVE_VEHICLES)
+export const reflSkipProviders = new Set(); // functions `(mark) => void` or `() => Iterable<Object3D | { mesh: Object3D }>`
 export function skipInRefl(o) { if (o && !reflSkip.includes(o)) reflSkip.push(o); return o; }
 export function unskipInRefl(o) { const i = o ? reflSkip.indexOf(o) : -1; if (i >= 0) reflSkip.splice(i, 1); }
 export class WaterReflection {
@@ -228,7 +228,12 @@ export class WaterReflection {
     const skO = this._skO || (this._skO = []), skV = this._skV || (this._skV = []); skO.length = 0; skV.length = 0;
     const hideOne = (o) => { if (!o || !o.visible) return; skO.push(o); skV.push(true); o.visible = false; };
     for (let i = 0; i < reflSkip.length; i++) hideOne(reflSkip[i]);
-    for (let i = 0; i < reflSkipProviders.length; i++) { const it = reflSkipProviders[i](); if (it) for (const x of it) hideOne(x && x.isObject3D ? x : x && x.mesh); }
+    for (const fn of reflSkipProviders) {
+      const it = fn(hideOne);
+      if (it && typeof it[Symbol.iterator] === 'function') {
+        for (const x of it) hideOne(x && x.isObject3D ? x : x && x.mesh);
+      }
+    }
     renderer.setRenderTarget(this.rt); renderer.clear(); renderer.render(scene, cam);
     renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis;
     for (let i = 0; i < skO.length; i++) skO[i].visible = skV[i];

@@ -812,7 +812,7 @@ export function buildBankInterior(game, site) {
       if (free && active < quota && D2 && Math.abs(D2.ang) < 0.05 && !room.doorBy && room.lineRoom('in') && Math.hypot(pl.x - STREET[0], pl.z - STREET[1]) > 2.5) spawn(free, pickPlan(Math.random), true); } return; }
     room.recT -= dt; if (room.recT > 0 || room.recruit || !room.lineRoom('in') || active >= quota || pool.length >= POOL + 2 || !game.crowd) return; room.recT = 7 + Math.random() * 12;
     const W2 = walkInOf(); if (!W2) return; const [ax, az] = W2.world(site, APPROACH[0], APPROACH[1]); let best = null, bd = 1e9;
-    for (const p of game.crowd.peds) { if (p.job || p.keep || p.scene || p.partner || p.dead || p.vanish || p.crossing || p.homeCar || p.sit || p.drunk || p.umbrella || (p.state !== 'walk' && p.state !== 'toPoi')) continue;
+    for (const p of game.crowd.peds) { if (p.job || p.keep || p.scene || p.partner || p.clique || p.dead || p.vanish || p.crossing || p.homeCar || p.sit || p.drunk || p.umbrella || (p.state !== 'walk' && p.state !== 'toPoi')) continue;
       const d = Math.hypot(p.x - ax, p.z - az); if (d < 2.5 || d > 18 || d >= bd || Math.abs((p.y ?? site.y0) - site.y0) > 0.6 || (p.ch.spec && !isAdultSpec(p.ch.spec))) continue; best = p; bd = d; }
     if (!best) return; const p = best; const R = room.recruit = { p, t: 0, ax, az, plan: pickPlan(Math.random), arrived: false };
     p.job = { step: (q, dt2) => { R.t += dt2; const dx = ax - q.x, dz = az - q.z, d = Math.hypot(dx, dz); if (d < 0.35) { R.arrived = true; return { desired: 0 }; } return { desired: Math.min(q.pace || 1.3, 0.35 + d * 0.9), tx: ax, tz: az, avoid: d > 1.0, accel: 3 }; },

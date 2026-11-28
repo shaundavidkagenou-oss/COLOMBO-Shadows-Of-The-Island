@@ -28,8 +28,12 @@ globalThis.localStorage = {
 const { patchLightChunks, MAT } = await import('../src/gfx/Materials.js');
 Object.setPrototypeOf(MAT, new Proxy({}, { get: (t, k) => { if (typeof k !== 'string') return undefined; if (!t[k]) t[k] = new THREE.MeshStandardMaterial(); return t[k]; } }));
 patchLightChunks();
+await import('../src/gfx/Atmosphere.js');
+const { addWind } = await import('../src/world/Vegetation.js');
+const { createVehicleMesh } = await import('../src/vehicles/VehicleModels.js');
+const { gatherBodies } = await import('../src/actors/Bodies.js');
 
-const { skipInRefl, unskipInRefl, reflSkipProviders } = await import('../src/world/Water.js');
+const { buildWater, WaterReflection, skipInRefl, unskipInRefl, reflSkipProviders } = await import('../src/world/Water.js');
 const { Forest } = await import('../src/world/Forest.js');
 const { Blood } = await import('../src/gfx/Blood.js');
 const { Character, randomSpec } = await import('../src/actors/Character.js');
@@ -51,7 +55,7 @@ const ok = (cond, msg) => {
 
 console.log('=== PHASE A: PERFORMANCE OPTIMIZATIONS ===');
 
-// 1. Shader light-chunk early-out & directLight.visible guard
+// 1. Shader light-chunk early-out, directLight.visible guard & WebGL2 GLSL 300 es preprocessor validation
 {
   const pars = THREE.ShaderChunk.lights_pars_begin;
   const frag = THREE.ShaderChunk.lights_fragment_begin;
@@ -59,8 +63,88 @@ console.log('=== PHASE A: PERFORMANCE OPTIMIZATIONS ===');
     'PointLight GLSL chunk early-outs on squared distance / zero color before sqrt');
   ok(pars.includes('spotLight.distance * spotLight.distance'),
     'SpotLight GLSL chunk early-outs on squared distance / zero color before cone/sqrt');
-  const gated = (frag.match(/if \( directLight\.visible \) \{ RE_Direct\(/g) || []).length;
-  ok(gated >= 4, `lights_fragment_begin gates RE_Direct behind directLight.visible (${gated} loops)`);
+  const gated = (frag.match(/if \( directLight\.visible \) \{\s+RE_Direct\(/g) || []).length;
+  ok(gated === 2 && frag.includes('#if !( ( defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 1 )'),
+    `lights_fragment_begin gates point+spot RE_Direct (${gated}) while keeping Atmosphere NUM_DIR_LIGHTS #if intact`);
+
+  const expandIncludes = (src, d = 0) => (d > 8 ? src : src.replace(/#include <(\w+)>/g, (_, k) => expandIncludes(THREE.ShaderChunk[k] || '', d + 1)));
+  const validateGLSL = (name, raw) => {
+    const src = expandIncludes(raw);
+    const clean = src.replace(/\/\*[\s\S]*?\*\//g, (m) => '\n'.repeat((m.match(/\n/g) || []).length)).replace(/\/\/[^\n]*/g, '');
+    const lines = clean.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i], h = ln.indexOf('#');
+      if (h >= 0 && ln.slice(0, h).trim() !== '') throw new Error(`${name}:${i + 1} mid-line #: ${ln}`);
+      if (/^\s*#(endif|else)\b/.test(ln) && ln.replace(/^\s*#(endif|else)\b/, '').trim() !== '') throw new Error(`${name}:${i + 1} extra tokens: ${ln}`);
+    }
+    for (const take of [true, false]) {
+      const stack = []; let braces = 0, parens = 0;
+      for (const ln of lines) {
+        const m = /^\s*#(\w+)/.exec(ln);
+        if (m) {
+          const dir = m[1], pt = stack.every((s) => s.take);
+          if (dir === 'if' || dir === 'ifdef' || dir === 'ifndef') stack.push({ take: pt && take, done: pt && take });
+          else if (dir === 'elif') { const top = stack[stack.length - 1]; top.take = stack.slice(0, -1).every((s) => s.take) && !top.done && !take; if (top.take) top.done = true; }
+          else if (dir === 'else') { const top = stack[stack.length - 1]; top.take = stack.slice(0, -1).every((s) => s.take) && !top.done; if (top.take) top.done = true; }
+          else if (dir === 'endif') stack.pop();
+          continue;
+        }
+        if (!stack.every((s) => s.take)) continue;
+        for (const ch of ln) {
+          if (ch === '{') braces++; else if (ch === '}') braces--;
+          else if (ch === '(') parens++; else if (ch === ')') parens--;
+          if (braces < 0 || parens < 0) throw new Error(`${name}: negative balance`);
+        }
+      }
+      if (stack.length || braces || parens) throw new Error(`${name}: unclosed preprocessor/braces/parens`);
+    }
+  };
+  let glslOk = true;
+  try {
+    validateGLSL('StandardFrag', THREE.ShaderLib.standard.fragmentShader);
+    const leafM = new THREE.MeshStandardMaterial({ alphaTest: 0.5 }); addWind(leafM, 'leaf');
+    const leafSh = { vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader, uniforms: THREE.UniformsUtils.clone(THREE.ShaderLib.standard.uniforms) };
+    leafM.onBeforeCompile(leafSh);
+    validateGLSL('LeafVert', leafSh.vertexShader); validateGLSL('LeafFrag', leafSh.fragmentShader);
+    const vm = createVehicleMesh('sedan', 7);
+    vm.traverse((o) => {
+      if (!o.isMesh || !o.material?.onBeforeCompile) return;
+      const lib = o.material.isMeshPhysicalMaterial ? THREE.ShaderLib.physical : THREE.ShaderLib.standard;
+      const sh = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: THREE.UniformsUtils.clone(lib.uniforms) };
+      o.material.onBeforeCompile(sh);
+      validateGLSL('VehFrag:' + o.name, sh.fragmentShader);
+    });
+  } catch (e) { glslOk = false; console.error('GLSL validation error:', e); }
+  ok(glslOk, 'All patched WebGL2 / GLSL 300 es shaders (Standard + Atmosphere + Vegetation + Vehicle) pass preprocessor & brace validation');
+}
+
+// 1b. WaterReflection reflSkipProviders Set & mark(obj) + iterable execution
+{
+  ok(reflSkipProviders instanceof Set && typeof reflSkipProviders.add === 'function', 'reflSkipProviders is a Set supporting .add() / .delete()');
+  const wScene = new THREE.Scene();
+  const waterGrp = buildWater(); wScene.add(waterGrp);
+  const wr = new WaterReflection(waterGrp);
+  const dynA = new THREE.Group(), dynB = new THREE.Group(), keepBld = new THREE.Group();
+  wScene.add(dynA, dynB, keepBld);
+  skipInRefl(dynA);
+  const provMark = (mark) => { mark(dynB); };
+  reflSkipProviders.add(provMark);
+  const wCam = new THREE.PerspectiveCamera(60, 1.6, 0.25, 4000);
+  wCam.position.set(-520, 8, 0); wCam.lookAt(-700, 0, 0); wCam.updateMatrixWorld(); wCam.updateProjectionMatrix();
+  let duringRefl = null;
+  const mockR = {
+    shadowMap: { autoUpdate: true }, xr: { enabled: false },
+    getContext: () => null,
+    getSize: (v) => v.set(1280, 720),
+    getRenderTarget: () => null,
+    setRenderTarget() {},
+    clear() {},
+    render: () => { duringRefl = { a: dynA.visible, b: dynB.visible, k: keepBld.visible, w: waterGrp.visible }; },
+  };
+  wr.update(mockR, wScene, wCam, true);
+  unskipInRefl(dynA); reflSkipProviders.delete(provMark);
+  ok(duringRefl && !duringRefl.a && !duringRefl.b && duringRefl.k && !duringRefl.w && dynA.visible && dynB.visible && waterGrp.visible,
+    'WaterReflection.update hides skipInRefl + reflSkipProviders(mark) targets during mirror render and restores visibility');
 }
 
 // 2. GPU tier detection & GTX 1660 Super autoTune
@@ -166,8 +250,20 @@ const step = (n = 1, dt = 1 / 30) => {
   }
 };
 step(180);
-ok(C.group.parent === scene && C.peds.length > 20 && C.peds.every((p) => p.ch.root.parent === C.group),
-  `Crowd parented under single WaterReflection-cullable group (${C.peds.length} peds)`);
+ok(C.group.parent === scene && C.group.userData.identityGroup === true && C.peds.length > 20 && C.peds.every((p) => p.ch.root.parent === C.group),
+  `Crowd parented under single WaterReflection-cullable identityGroup (${C.peds.length} peds)`);
+{
+  const bodies = gatherBodies(scene);
+  const sample = C.peds[0];
+  const bSample = bodies.find((b) => b.ch === sample.ch);
+  ok(!!bSample && Math.hypot(bSample.x - sample.x, bSample.z - sample.z) < 1e-4,
+    'Bodies.gatherBodies(scene) reads exact coordinates from Crowd.group via identityGroup fast-path');
+  const relSample = C.peds[C.peds.length - 1];
+  C.release(relSample);
+  ok(relSample.ch.root.parent === scene && !C.peds.includes(relSample),
+    'Crowd.release(p) reparents handed-over pedestrian from Crowd.group back onto scene');
+  relSample.ch.root.parent?.remove(relSample.ch.root); relSample.ch.dispose();
+}
 skipInRefl(C.group); unskipInRefl(C.group);
 
 // 5. Multi-turn Greet -> Small talk -> Wish well, Antagonize -> Provoke -> Defuse, and Armed Hold-up
@@ -261,16 +357,20 @@ skipInRefl(C.group); unskipInRefl(C.group);
     `Friend clique reacts with group solidarity when member is shoved (${peers.map((f) => f.state).join(', ')})`);
 }
 
-// 8. Multimodal Transit (Tuk-tuk / Bus Boarding) & Parked Car Owner Return Loop
+// 8. Multimodal Transit (Tuk-tuk / Bus Boarding via Crowd.update) & Parked Car Owner Return Loop
 {
-  const tuk = T.vehicles.find((v) => v.type === 'tuktuk' && v.ai) || T.vehicles.find((v) => v.ai && (v.mesh.userData.seats || []).length > 1);
+  const nearV = (v) => Math.hypot(v.x - focus.x, v.z - focus.z) < 85 && v.ai && (v.mesh.userData.seats || []).some((s) => !s.driver);
+  const tuk = T.vehicles.find((v) => v.type === 'tuktuk' && nearV(v)) || T.vehicles.find(nearV);
   if (tuk) {
-    tuk.pax = []; tuk.paxPlan = [];
+    tuk.pax = []; tuk.paxPlan = []; tuk.speed = 0;
     const rider = C.peds.find((q) => q.state === 'walk' && !q.clique && !q.partner);
-    const paxBefore = tuk.pax.length;
-    const boarded = T.hailStop(tuk, 6) && T.boardTransit(tuk, rider);
-    ok(boarded && tuk.pax.length === paxBefore + 1 && !C.peds.includes(rider) && tuk.transitDropT > 0,
-      `Multimodal transit: pedestrian hails & boards ${tuk.type} and schedules drop-off (${tuk.transitDropT.toFixed(1)}s)`);
+    const bp = T.paxBoardPoint(tuk);
+    rider.x = bp.x + 0.3; rider.z = bp.z + 0.3;
+    T.hailStop(tuk, 6);
+    rider.state = 'scene'; rider.scene = { kind: 'transitBoard', v: tuk, t: 0 };
+    step(2, 1 / 30);
+    ok(tuk.pax.includes(rider.ch) && !C.peds.includes(rider) && rider.ch.root.parent === tuk.mesh && rider.ch.root.position.length() < 3 && tuk.transitDropT > 0,
+      `Multimodal transit: Crowd.update safely boards ${tuk.type} outside ped loop with seat-local coords (pos=${rider.ch.root.position.length().toFixed(2)}m)`);
   }
 
   // Parked vehicle owner return & unparkDriveOff
